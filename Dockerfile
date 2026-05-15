@@ -1,0 +1,30 @@
+# Use a slim Node image as the base
+FROM arm64v8/node:26-slim
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    python3 python3-pip git curl zstd ruby bundler ruby-dev procps \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Ollama
+RUN curl -fsSL https://ollama.com/install.sh | sh
+
+# Install uv (The lightning-fast Python manager)
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+
+# Install the Agent platforms
+RUN curl -fsSL https://claude.ai/install.sh | bash
+# RUN ln -s /root/.local/bin/claude /usr/local/bin
+RUN echo 'export PATH="/root/.local/bin:$PATH"' >> /root/.bashrc
+RUN curl -fsSL https://opencode.ai/install | bash
+RUN npm install -g @openai/codex
+RUN npm install -g @github/copilot
+
+# Install uv
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Workspace is set in docker run
+
+# Keep the container running
+CMD ["sleep", "infinity"]

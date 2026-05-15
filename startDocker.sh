@@ -108,7 +108,23 @@ docker exec ${cont_name} uv venv --allow-existing --quiet || { echo "Failed to c
 # Install requirements if they exist
 if [ -f requirements.txt ]; then
     echo "Syncing project dependencies..."
-    docker exec ${cont_name} uv pip install -r requirements.txt || { echo "Dependency sync failed"; exit 1; }
+    has_torch=false
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      package=$(echo "${line}" | tr -s '=' | cut -d'=' -f1)
+      if [ "${package}" == "torch" ]
+      then
+        has_torch=true      
+      else
+        packages+=("${line}")
+      fi
+    done < requirements.txt
+    # echo "Packages to install: ${packages[*]}"
+    if [ "${has_torch}" = "true" ]
+    then
+      # PyTorch has a separate index for CPU-only packages, so we need to specify it when installing torch
+        docker exec ${cont_name} uv pip install --index-url=https://download.pytorch.org/whl/cpu torch || { echo "Torch install failed"; exit 1; }
+    fi
+    docker exec ${cont_name} uv pip install ${packages[*]} || { echo "Dependency sync failed"; exit 1; }
 fi
 
 # Launch the Agent

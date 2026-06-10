@@ -1,6 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
+OLLAMA_HOST=127.0.0.1:11434
 OLLAMA_DIR=~/.ollama
 PIDFILE="$OLLAMA_DIR/ollama.pid"
 LOGFILE="$OLLAMA_DIR/logs/server.log"
@@ -100,12 +101,14 @@ start_service() {
   [ -n "$OLLAMA_FLASH_ATTENTION" ] && export OLLAMA_FLASH_ATTENTION
   [ -n "$OLLAMA_KV_CACHE_TYPE" ] && export OLLAMA_KV_CACHE_TYPE
   [ -n "$AGX_RELAX_CDM_CTXSTORE_TIMEOUT" ] && export AGX_RELAX_CDM_CTXSTORE_TIMEOUT
+  [ -n "$OLLAMA_HOST" ] && export OLLAMA_HOST
 
   echo "Starting Ollama serve with the following settings:"
   [ -n "$OLLAMA_FLASH_ATTENTION" ] && echo "OLLAMA_FLASH_ATTENTION=$OLLAMA_FLASH_ATTENTION"
   [ -n "$OLLAMA_KV_CACHE_TYPE" ] && echo "OLLAMA_KV_CACHE_TYPE=$OLLAMA_KV_CACHE_TYPE"
   [ -n "$AGX_RELAX_CDM_CTXSTORE_TIMEOUT" ] && echo "AGX_RELAX_CDM_CTXSTORE_TIMEOUT=$AGX_RELAX_CDM_CTXSTORE_TIMEOUT"
-  if [ -z "$OLLAMA_FLASH_ATTENTION" ] && [ -z "$OLLAMA_KV_CACHE_TYPE" ] && [ -z "$AGX_RELAX_CDM_CTXSTORE_TIMEOUT" ]; then
+  [ -n "$OLLAMA_HOST" ] && echo "OLLAMA_HOST=$OLLAMA_HOST"
+  if [ -z "$OLLAMA_FLASH_ATTENTION" ] && [ -z "$OLLAMA_KV_CACHE_TYPE" ] && [ -z "$AGX_RELAX_CDM_CTXSTORE_TIMEOUT" ] && [ -z "$OLLAMA_HOST" ]; then
     echo "No optimization variables set."
   fi
   echo "Output will also be saved to $LOGFILE"
@@ -121,23 +124,39 @@ start_service() {
   fi
 }
 
+stop_tail() {
+  if [ -f "$TAILFILE" ]; then
+    local tail_pid
+    tail_pid=$(<"$TAILFILE")
+    if is_running "$tail_pid"; then
+      kill "$tail_pid"
+      echo "Stopped tailing log (PID=$tail_pid)."
+    fi
+    rm -f "$TAILFILE"
+  fi
+}
+
 stop_service() {
+  local ignore_if_not_running=$1
   if [ ! -f "$PIDFILE" ]; then
     echo "No PID file found; ollama serve does not appear to be running."
-    exit 1
-  fi
+    stop_tail
+    [ "$ignore_if_not_running" = "can be ignored if not running" ] || exit 1
+  else
 
-  local pid
-  pid=$(<"$PIDFILE")
-  if ! is_running "$pid"; then
-    echo "No running process found for PID $pid. Removing stale PID file."
+    local pid
+    pid=$(<"$PIDFILE")
     rm -f "$PIDFILE"
-    exit 1
+    if ! is_running "$pid"; then
+      echo "No running process found for PID $pid. Removing stale PID file."
+      stop_tail
+      [ "$ignore_if_not_running" = "can be ignored if not running" ] || exit 1
+    else
+      kill "$pid"
+      echo "Stopped ollama serve (PID=$pid)."
+    fi
   fi
-
-  kill "$pid"
-  rm -f "$PIDFILE"
-  echo "Stopped ollama serve (PID=$pid)."
+  stop_tail
 }
 
 status_service() {
@@ -192,13 +211,13 @@ case "$command" in
     start_service "$@"
     ;;
   stop)
-    stop_service
+    stop_service "need to be running"
     ;;
   status)
     status_service
     ;;
   restart)
-    stop_service
+    stop_service "can be ignored if not running"
     start_service "$@"
     ;;
   tail)

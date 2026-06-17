@@ -6,11 +6,6 @@ startDocker() {
   mac_path=${3}
   map_dirs=${4}
   Dockerfile=${5}
-  is_sandbox=${6:-1}
-  anthropic_timeout_ms=${7:-600000}
-  claude_max_output_tokens=${8:-64000}
-
-
 
   echo "Pruning unused Docker cache..."
   ${DOCKER_BIN} builder prune -f || { echo "Failed to prune Docker cache"; exit 1; }
@@ -46,11 +41,6 @@ startDocker() {
 
     ${DOCKER_BIN} run -d \
       --name ${cont_name} \
-      -e OLLAMA_API_BASE_URL=http://host.docker.internal:11434 \
-      -e OLLAMA_HOST=http://host.docker.internal:11434 \
-      -e IS_SANDBOX=${is_sandbox} \
-      -e ANTHROPIC_TIMEOUT_MS=${anthropic_timeout_ms} \
-      -e CLAUDE_CODE_MAX_OUTPUT_TOKENS=${claude_max_output_tokens} \
       -v "$mac_path:$mac_path" \
       ${map_dirs} \
       -w "$mac_path" \

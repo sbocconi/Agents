@@ -17,7 +17,7 @@ RUN npm install -g @openai/codex
 RUN npm install -g @github/copilot
 
 # Install Ollama
-RUN curl -fsSL https://ollama.com/install.sh | sh
+# RUN curl -fsSL https://ollama.com/install.sh | sh
 
 # Workspace directory is set in docker run
 

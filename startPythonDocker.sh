@@ -4,6 +4,7 @@ SCRIPT_DIR=$(dirname $(readlink -f "$0"))
 # Import common functions
 . ${SCRIPT_DIR}/comm_fun.sh
 
+DOCKER_BIN=$(command -v podman || command -v docker)
 # Get the absolute path of the current directory on your Mac
 mac_path=$(pwd)
 echo "Current directory on Mac: ${mac_path}"
@@ -11,7 +12,7 @@ echo "Current directory on Mac: ${mac_path}"
 parentbasename=$(basename $(dirname $mac_path)| tr '[:upper:]' '[:lower:]')
 currentbasename=$(basename $mac_path | tr '[:upper:]' '[:lower:]')
 cont_name="agent-sandbox-${parentbasename}_${currentbasename}"
-model="qwen3.6:latest"
+model="qwen3-coder-next:latest"
 agent="claude"
 
 
@@ -58,7 +59,7 @@ startDocker ${cont_name} ${agent} ${mac_path} "${map_dirs}" ${SCRIPT_DIR}/Python
 # Handle Virtual Environment with UV
 echo "Setting up Python sandbox..."
 # Create venv if it doesn't exist
-docker exec ${cont_name} uv venv --allow-existing --quiet || { echo "Failed to create venv"; exit 1; }
+${DOCKER_BIN} exec ${cont_name} uv venv --allow-existing --quiet || { echo "Failed to create venv"; exit 1; }
 
 # Install requirements if they exist
 if [ -f requirements.txt ]; then
@@ -77,12 +78,12 @@ if [ -f requirements.txt ]; then
     if [ "${has_torch}" = "true" ]
     then
       # PyTorch has a separate index for CPU-only packages, so we need to specify it when installing torch
-        docker exec ${cont_name} uv pip install --index-url=https://download.pytorch.org/whl/cpu torch || { echo "Torch install failed"; exit 1; }
+        ${DOCKER_BIN} exec ${cont_name} uv pip install --index-url=https://download.pytorch.org/whl/cpu torch || { echo "Torch install failed"; exit 1; }
     fi
-    docker exec ${cont_name} uv pip install ${packages[*]} || { echo "Dependency sync failed"; exit 1; }
+    ${DOCKER_BIN} exec ${cont_name} uv pip install ${packages[*]} || { echo "Dependency sync failed"; exit 1; }
 fi
 
 # Launch the Agent
 # We use 'uv run' which automatically activates the .venv for the agent
 echo "Container is UP. Launching ${agent} Agent..."
-docker exec -it ${cont_name} bash -c "echo \"export IS_SANDBOX=${IS_SANDBOX}\" >> /root/.bashrc; source /root/.bashrc; uv run ollama launch ${agent} --model ${model} -- ${add_options}"
+${DOCKER_BIN} exec -it ${cont_name} bash -c "echo \"export IS_SANDBOX=${IS_SANDBOX}\" >> /root/.bashrc; source /root/.bashrc; uv run ollama launch ${agent} --model ${model} -- ${add_options}"

@@ -1,25 +1,31 @@
 
 startDocker() {
+  DOCKER_BIN=$(command -v podman || command -v docker)
   cont_name=${1}
   agent=${2}
   mac_path=${3}
   map_dirs=${4}
   Dockerfile=${5}
+  is_sandbox=${6:-1}
+  anthropic_timeout_ms=${7:-600000}
+  claude_max_output_tokens=${8:-64000}
+
+
 
   echo "Pruning unused Docker cache..."
-  docker builder prune -f || { echo "Failed to prune Docker cache"; exit 1; }
+  ${DOCKER_BIN} builder prune -f || { echo "Failed to prune Docker cache"; exit 1; }
 
-  if [ "$(docker ps -q -f name=${cont_name})" ]; then
+  if [ "$(${DOCKER_BIN} ps -q -f name=${cont_name})" ]; then
     echo "Container '${cont_name}' is already running."
-  elif [ "$(docker ps -aq -f name=${cont_name})" ]; then
+  elif [ "$(${DOCKER_BIN} ps -aq -f name=${cont_name})" ]; then
     echo "Container '${cont_name}' exists but is not running. Starting it..."
-    docker start ${cont_name}
+    ${DOCKER_BIN} start ${cont_name}
   else
 
-    docker build -t ${cont_name}-image --file $(readlink -f ${Dockerfile}) . || { echo "Docker build failed."; exit 1; }
+    ${DOCKER_BIN} build -t ${cont_name}-image --file $(readlink -f ${Dockerfile}) . || { echo "Docker build failed."; exit 1; }
 
     # Remove old container if it exists
-    docker rm -f ${cont_name} 2>/dev/null || true
+    ${DOCKER_BIN} rm -f ${cont_name} 2>/dev/null || true
 
     # Run the container in the background (-d)
     # We mount the current directory to the same path in the container, to be able to resume the session also outside of the container.
@@ -38,10 +44,13 @@ startDocker() {
       exit 1
     fi
 
-    docker run -d \
+    ${DOCKER_BIN} run -d \
       --name ${cont_name} \
       -e OLLAMA_API_BASE_URL=http://host.docker.internal:11434 \
       -e OLLAMA_HOST=http://host.docker.internal:11434 \
+      -e IS_SANDBOX=${is_sandbox} \
+      -e ANTHROPIC_TIMEOUT_MS=${anthropic_timeout_ms} \
+      -e CLAUDE_CODE_MAX_OUTPUT_TOKENS=${claude_max_output_tokens} \
       -v "$mac_path:$mac_path" \
       ${map_dirs} \
       -w "$mac_path" \
@@ -51,12 +60,12 @@ startDocker() {
     echo "Waiting for container to be ready..."
     max_retries=10
     retry_count=0
-    until [ "$(docker inspect -f '{{.State.Running}}' ${cont_name} 2>/dev/null)" == "true" ]; do
+    until [ "$(${DOCKER_BIN} inspect -f '{{.State.Running}}' ${cont_name} 2>/dev/null)" == "true" ]; do
         sleep 1
         ((retry_count++))
         if [ $retry_count -ge $max_retries ]; then
             echo "Container failed to start in time"
-            docker logs ${cont_name}
+            ${DOCKER_BIN} logs ${cont_name}
             exit 1
         fi
     done

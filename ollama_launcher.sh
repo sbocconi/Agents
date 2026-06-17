@@ -18,15 +18,13 @@ Commands:
   help       Show this help
 
 Options for start:
-  -c VALUE   Set OLLAMA_CONTEXT_LENGTH
-              The context length to use for the server (e.g. 8192).
-  -f         Set OLLAMA_FLASH_ATTENTION
-  -k VALUE   Set OLLAMA_KV_CACHE_TYPE
-              f16 - high precision and memory usage (default).
-              q8_0 - 8-bit quantization, uses approximately 1/2 the memory of f16 with a very small loss in precision, this usually has no noticeable impact on the model’s quality (recommended if not using f16).
-              q4_0 - 4-bit quantization, uses approximately 1/4 the memory of f16 with a small-medium loss in precision that may be more noticeable at higher context sizes.
-  -a         Set AGX_RELAX_CDM_CTXSTORE_TIMEOUT
-  -t         Start tailing the log in the background after start
+  -c VALUE   Set OLLAMA_CONTEXT_LENGTH (e.g. 131072 for long-context agents. Default: 8192)
+  -f         Set OLLAMA_FLASH_ATTENTION=1 (Enables Flash Attention, required for quantized KV cache)
+  -k VALUE   Set OLLAMA_KV_CACHE_TYPE (Reduces VRAM constraints at massive contexts)
+              16   - high precision (f16, default).
+              8    - 8-bit quantization (q8_0, cuts memory usage by half, recommended).
+              4    - 4-bit quantization (q4_0, cuts memory usage by 75%).
+  -t         Start tailing the log in the background immediately after boot
   -h         Show start help
 EOF
 }
@@ -37,9 +35,11 @@ is_running() {
 }
 
 start_service() {
-  local OLLAMA_FLASH_ATTENTION=""
-  local OLLAMA_KV_CACHE_TYPE=""
-  local AGX_RELAX_CDM_CTXSTORE_TIMEOUT=""
+  # Establish robust defaults for long-context agent sandboxes
+  local OLLAMA_CONTEXT_LENGTH="8192"
+  local OLLAMA_FLASH_ATTENTION="1" # Explicitly defaulted to 1 to enable quantized KV caches
+  local OLLAMA_KV_CACHE_TYPE="q8_0" # Safest, highly-performant VRAM saving default
+  local OLLAMA_KEEP_ALIVE="60m"     # Prevent model unloading/re-allocations during slow generations
   local TAIL_LOG=0
 
   if [ -f "$PIDFILE" ]; then
@@ -53,34 +53,24 @@ start_service() {
   fi
 
   OPTIND=1
-  while getopts "c:fk:ath" opt; do
+  while getopts "c:fk:th" opt; do
     case $opt in
       c)
         OLLAMA_CONTEXT_LENGTH=$OPTARG
         ;;
       f)
-        OLLAMA_FLASH_ATTENTION=1
+        OLLAMA_FLASH_ATTENTION="1"
         ;;
       k)
         case $OPTARG in
-          16)
-            OLLAMA_KV_CACHE_TYPE="f16"
-            ;;
-          8)
-            OLLAMA_KV_CACHE_TYPE="q8_0"
-            ;;
-          4)
-            OLLAMA_KV_CACHE_TYPE="q4_0"
-            ;;
+          16) OLLAMA_KV_CACHE_TYPE="f16" ;;
+          8)  OLLAMA_KV_CACHE_TYPE="q8_0" ;;
+          4)  OLLAMA_KV_CACHE_TYPE="q4_0" ;;
           *)
-            echo "Invalid value for -k: $OPTARG"
-            echo "Valid values are: 16, 8, 4"
+            echo "Invalid value for -k: $OPTARG. Choose 16, 8, or 4."
             exit 1
             ;;
         esac
-        ;;
-      a)
-        AGX_RELAX_CDM_CTXSTORE_TIMEOUT=1
         ;;
       t)
         TAIL_LOG=1
@@ -90,34 +80,35 @@ start_service() {
         exit 0
         ;;
       *)
-        echo "Invalid start option: -$opt"
-        echo "Use '$0 help' for usage."
+        echo "Invalid start option: -$opt. Use '$0 help'."
         exit 1
         ;;
     esac
   done
   shift $((OPTIND - 1))
 
-  [ -n "$OLLAMA_FLASH_ATTENTION" ] && export OLLAMA_FLASH_ATTENTION
-  [ -n "$OLLAMA_KV_CACHE_TYPE" ] && export OLLAMA_KV_CACHE_TYPE
-  [ -n "$AGX_RELAX_CDM_CTXSTORE_TIMEOUT" ] && export AGX_RELAX_CDM_CTXSTORE_TIMEOUT
-  [ -n "$OLLAMA_HOST" ] && export OLLAMA_HOST
+  # Export variables to environment for Ollama binary consumption
+  export OLLAMA_CONTEXT_LENGTH
+  export OLLAMA_FLASH_ATTENTION
+  export OLLAMA_KV_CACHE_TYPE
+  export OLLAMA_KEEP_ALIVE
+  export OLLAMA_HOST
 
-  echo "Starting Ollama serve with the following settings:"
-  [ -n "$OLLAMA_FLASH_ATTENTION" ] && echo "OLLAMA_FLASH_ATTENTION=$OLLAMA_FLASH_ATTENTION"
-  [ -n "$OLLAMA_KV_CACHE_TYPE" ] && echo "OLLAMA_KV_CACHE_TYPE=$OLLAMA_KV_CACHE_TYPE"
-  [ -n "$AGX_RELAX_CDM_CTXSTORE_TIMEOUT" ] && echo "AGX_RELAX_CDM_CTXSTORE_TIMEOUT=$AGX_RELAX_CDM_CTXSTORE_TIMEOUT"
-  [ -n "$OLLAMA_HOST" ] && echo "OLLAMA_HOST=$OLLAMA_HOST"
-  if [ -z "$OLLAMA_FLASH_ATTENTION" ] && [ -z "$OLLAMA_KV_CACHE_TYPE" ] && [ -z "$AGX_RELAX_CDM_CTXSTORE_TIMEOUT" ] && [ -z "$OLLAMA_HOST" ]; then
-    echo "No optimization variables set."
-  fi
-  echo "Output will also be saved to $LOGFILE"
+  echo "====================================================="
+  echo "Launching Ollama Server with optimized variables:"
+  echo "  - OLLAMA_CONTEXT_LENGTH   = $OLLAMA_CONTEXT_LENGTH"
+  echo "  - OLLAMA_FLASH_ATTENTION  = $OLLAMA_FLASH_ATTENTION"
+  echo "  - OLLAMA_KV_CACHE_TYPE    = $OLLAMA_KV_CACHE_TYPE"
+  echo "  - OLLAMA_KEEP_ALIVE       = $OLLAMA_KEEP_ALIVE"
+  echo "  - OLLAMA_HOST             = $OLLAMA_HOST"
+  echo "====================================================="
+  echo "Server logs redirecting to: $LOGFILE"
   echo ""
 
   nohup ollama serve >>"$LOGFILE" 2>&1 &
   local pid=$!
   echo "$pid" > "$PIDFILE"
-  echo "Ollama serve started in the background (PID=$pid)."
+  echo "Ollama serve running in background (PID=$pid)."
   
   if [ "$TAIL_LOG" -eq 1 ]; then
     tail_service_background
@@ -207,27 +198,17 @@ tail_service() {
 command=${1:-start}
 shift || true
 case "$command" in
-  start)
-    start_service "$@"
-    ;;
-  stop)
-    stop_service "need to be running"
-    ;;
-  status)
-    status_service
-    ;;
+  start)   start_service "$@" ;;
+  stop)    stop_service "need to be running" ;;
+  status)  status_service ;;
   restart)
     stop_service "can be ignored if not running"
     start_service "$@"
     ;;
-  tail)
-    tail_service
-    ;;
-  help|-h)
-    usage
-    ;;
+  tail)    tail_service ;;
+  help|-h) usage ;;
   *)
-    echo "Unknown command: $command"
+    echo "Error: Command variants not found: $command"
     usage
     exit 1
     ;;

@@ -15,13 +15,15 @@ model="qwen3-coder-next:latest"
 
 # Avoid for local agents: copilot, codex, or kimi are primarily heavily tuned toward cloud endpoints 
 # and have worse translation layers when forced to run locally.
+# Installed on the docker image:  claude.ai, opencode.ai, codex, copilot      
 agent="claude"
 
 resume=""
 map_dirs=""
 language=""
+provider=""
 
-while getopts "a:d:hl:r:" opt; do
+while getopts "a:d:hl:p:r:" opt; do
     case $opt in
       a)
         agent="${OPTARG}"
@@ -36,11 +38,15 @@ while getopts "a:d:hl:r:" opt; do
         echo "  -d DIR      Specify a directory to map into the container"
         echo "  -h          Display this help message"
         echo "  -l LANGUAGE  Specify the programming language"
+        echo "  -p PROVIDER  Specify the provider (ollama or lms)"
         echo "  -r RESUME   Specify a resume checkpoint for the agent"
         exit 0
         ;;
       l)
         language="${OPTARG}"
+        ;;
+      p)
+        provider="${OPTARG}"
         ;;
       r)
         resume="${OPTARG}"
@@ -51,6 +57,15 @@ while getopts "a:d:hl:r:" opt; do
         ;;
     esac
 done
+
+if [ "$provider" = "ollama" ]; then
+  echo "Using Ollama provider"
+elif [ "$provider" = "lms" ]; then
+  echo "Using LMS provider"
+else
+  echo "Invalid provider: $provider"
+  exit 1
+fi
 
 if [ "${language}" = "python" ]; then
     dockerfile="${SCRIPT_DIR}/PythonDockerfile"
@@ -119,14 +134,26 @@ case $agent in
         # we need to add the env var IS_SANDBOX to avoid getting an error
         # https://code.claude.com/docs/en/permission-modes#skip-all-checks-with-bypasspermissions-mode
         # https://github.com/anthropics/claude-code/issues/3490
-        my_exports="ANTHROPIC_BASE_URL=\"http://host.docker.internal:11434\" \
-          ANTHROPIC_AUTH_TOKEN=\"ollama\" \
-          ANTHROPIC_API_KEY=\"\" \
+        my_exports=" \
           ANTHROPIC_TIMEOUT_MS=600000 \
-          CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000 \
+          CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 \
           IS_SANDBOX=1 \
           CLAUDE_CODE_DISABLE_MOUSE=1 \
           "
+          if [ "$provider" = "ollama" ]; then
+            my_exports=" ${my_exports} \
+            ANTHROPIC_BASE_URL=\"http://host.docker.internal:11434\" \
+            ANTHROPIC_AUTH_TOKEN=\"ollama\" \
+            "
+          elif [ "$provider" = "lms" ]; then
+            my_exports=" ${my_exports} \
+            ANTHROPIC_BASE_URL=\"http://host.docker.internal:1234\" \
+            ANTHROPIC_AUTH_TOKEN=\"lms\" \
+            "
+          else
+            echo "Invalid provider: $provider"
+            exit 1
+          fi
           add_commands="source /root/.bashrc"
           add_options="--effort xhigh --dangerously-skip-permissions"
           if [ -n "${resume}" ]; then
@@ -137,15 +164,24 @@ case $agent in
         conf_dir="${mac_path}/.opencode"
         mkdir -p "${conf_dir}"
         my_exports="OPENCODE_CONFIG=\"${conf_dir}\"/opencode.json"
+        if [ "$provider" = "ollama" ]; then
+          provider_port="11434"
+        elif [ "$provider" = "lms" ]; then
+          provider_port="1234"
+        else
+          echo "Invalid provider: $provider"
+          exit 1
+        fi
+
         cat << EOF > "${conf_dir}"/opencode.json 
 {
   "\$schema": "https://opencode.ai/config.json",
   "provider": {
-    "ollama": {
+    "${provider}": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Ollama Local",
+      "name": "${provider} Local",
       "options": {
-        "baseURL": "http://host.docker.internal:11434/v1"
+        "baseURL": "http://host.docker.internal:${provider_port}/v1"
       },
       "models": {
         "${model}": {
@@ -155,7 +191,7 @@ case $agent in
       }
     }
   },
-  "model": "ollama/${model}",
+  "model": "${provider}/${model}",
   "permission": "allow"
 }
 EOF
@@ -179,9 +215,10 @@ EOF
         ;;
     esac
 
+my_exports=$(echo "${my_exports}" | tr -s ' ')
 echo "commands to run in container: ${add_commands}"
 echo "options to run in container: ${add_options}"
-
+echo "exports to run in container: ${my_exports}"
 # exit 0
 # Launch the Agent
 echo "Container is UP. Launching ${agent} Agent with model ${model} and options: ${add_options}"

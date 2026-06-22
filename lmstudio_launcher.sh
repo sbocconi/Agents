@@ -3,7 +3,7 @@ set -euo pipefail
 
 lms_cmd='"/Applications/LM Studio.app/Contents/Resources/app/.webpack/lms"'
 lms_port=1234
-lms_def_context_length=65536  # 262144 65536 48128 32768 16384 8192
+lms_def_context_length=32768  # 262144 65536 48128 32768 16384 8192
 model_identifier="qwen3-coder-next"
 model="qwen/$model_identifier"
 
@@ -32,11 +32,6 @@ start_service() {
   # 57344 translates to exactly 56 GB in Megabytes, leaving 8 GB for system tasks.
   local lms_context_length="$lms_def_context_length"
   local TAIL_LOG=0
-
-  if status_service >/dev/null 2>&1; then
-    echo "LMS server is already running."
-    exit 1
-  fi
 
   OPTIND=1
   while getopts "c:hm:t" opt; do
@@ -73,8 +68,8 @@ start_service() {
   echo "====================================================="
   echo ""
 
-  eval $lms_cmd server start --bind 0.0.0.0 --port $lms_port
-  eval $lms_cmd load ${model} --context-length $lms_context_length --identifier "$model_identifier"
+  status_service || eval $lms_cmd server start --bind 0.0.0.0 --port $lms_port
+  loaded_model | grep "$model_identifier" >/dev/null || eval $lms_cmd load ${model} --context-length $lms_context_length --identifier "$model_identifier"
 
    # Wait for server to start
   

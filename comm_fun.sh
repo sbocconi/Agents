@@ -25,13 +25,12 @@ startDocker() {
     # Run the container in the background (-d)
     # We mount the current directory to the same path in the container, to be able to resume the session also outside of the container.
     # We also mount the agent directory (for example, .claude) to share the same settings.
-    # The idea is to support other agents, such as Opencode and codex, here we mount opencode's .config directory,
-    # but this has not been tested yet.
+    # The idea is to support other agents, such as copilot, here we mount opencode's .config directory,
+    # but this has not been tested yet for copilot.
     echo "Starting container..."
-    if [ "${agent}" == "claude" ]; then
-        map_dirs="${map_dirs} -v $HOME/.claude:/root/.claude -v $HOME/.claude.json:/root/.claude.json"
-    elif [ "${agent}" == "opencode" ]; then
-      map_dirs="${map_dirs} -v $HOME/.config/opencode:/root/.config/opencode"
+    if [ "${agent}" == "claude" -o "${agent}" == "opencode" ]; then
+      map_dirs="${map_dirs} -v $HOME/.claude:/root/.claude -v $HOME/.claude.json:/root/.claude.json"
+      map_dirs="${map_dirs} -v $HOME/.local/share/opencode:/root/.local/share/opencode"
     elif [ "${agent}" == "copilot" ]; then
       map_dirs="${map_dirs} -v $HOME/.copilot:/root/.copilot"
     else

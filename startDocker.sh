@@ -23,7 +23,7 @@ map_dirs=""
 language=""
 provider=""
 
-while getopts "a:d:hl:p:r:" opt; do
+while getopts "a:d:hl:m:p:r:" opt; do
     case $opt in
       a)
         agent="${OPTARG}"
@@ -38,12 +38,16 @@ while getopts "a:d:hl:p:r:" opt; do
         echo "  -d DIR      Specify a directory to map into the container"
         echo "  -h          Display this help message"
         echo "  -l LANGUAGE  Specify the programming language"
-        echo "  -p PROVIDER  Specify the provider (ollama or lms)"
+        echo "  -m MODEL     Specify the model to use"
+        echo "  -p PROVIDER  Specify the provider (ollama, wrapped_ollama, or lms)"
         echo "  -r RESUME   Specify a resume checkpoint for the agent"
         exit 0
         ;;
       l)
         language="${OPTARG}"
+        ;;
+      m)
+        model="${OPTARG}"
         ;;
       p)
         provider="${OPTARG}"
@@ -60,8 +64,12 @@ done
 
 if [ "$provider" = "ollama" ]; then
   echo "Using Ollama provider"
+elif [ "$provider" = "wrapped_ollama" ]; then
+  echo "Using Wrapped Ollama to Ollamaprovider"
 elif [ "$provider" = "lms" ]; then
   echo "Using LMS provider"
+elif [ "$provider" = "wrapped_lms" ]; then
+  echo "Using Wrapped Ollama to LMS provider"
 else
   echo "Invalid provider: $provider"
   exit 1
@@ -142,12 +150,24 @@ case $agent in
           "
           if [ "$provider" = "ollama" ]; then
             my_exports=" ${my_exports} \
-            ANTHROPIC_BASE_URL=\"http://host.docker.internal:11434\" \
+            ANTHROPIC_BASE_URL=http://host.docker.internal:11434 \
+            ANTHROPIC_AUTH_TOKEN=\"ollama\" \
+            "
+          elif [ "$provider" = "wrapped_ollama" ]; then
+            my_exports=" ${my_exports} \
+            OLLAMA_API_BASE_URL=http://host.docker.internal:11434 \
+            OLLAMA_HOST=http://host.docker.internal:11434 \
             ANTHROPIC_AUTH_TOKEN=\"ollama\" \
             "
           elif [ "$provider" = "lms" ]; then
             my_exports=" ${my_exports} \
-            ANTHROPIC_BASE_URL=\"http://host.docker.internal:1234\" \
+            ANTHROPIC_BASE_URL=http://host.docker.internal:1234 \
+            ANTHROPIC_AUTH_TOKEN=\"lms\" \
+            "
+          elif [ "$provider" = "wrapped_lms" ]; then
+            my_exports=" ${my_exports} \
+            OLLAMA_API_BASE_URL=http://host.docker.internal:1234 \
+            OLLAMA_HOST=http://host.docker.internal:1234 \
             ANTHROPIC_AUTH_TOKEN=\"lms\" \
             "
           else
@@ -163,11 +183,22 @@ case $agent in
       opencode)
         conf_dir="${mac_path}/.opencode"
         mkdir -p "${conf_dir}"
-        my_exports="OPENCODE_CONFIG=\"${conf_dir}\"/opencode.json"
+        my_exports="OPENCODE_CONFIG=\"${conf_dir}\"/opencode.json \
+        OPENCODE_TUI_CONFIG=\"${conf_dir}\"/tui.json \
+        "
         if [ "$provider" = "ollama" ]; then
           provider_port="11434"
+          provider_name="ollama"
+        elif [ "$provider" = "wrapped_ollama" ]; then
+          provider_port="11434"
+          provider_name="ollama"
+          my_exports=" ${my_exports} \
+            OLLAMA_API_BASE_URL=http://host.docker.internal:11434 \
+            OLLAMA_HOST=http://host.docker.internal:11434 \
+            "
         elif [ "$provider" = "lms" ]; then
           provider_port="1234"
+          provider_name="lms"
         else
           echo "Invalid provider: $provider"
           exit 1
@@ -177,9 +208,9 @@ case $agent in
 {
   "\$schema": "https://opencode.ai/config.json",
   "provider": {
-    "${provider}": {
+    "${provider_name}": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "${provider} Local",
+      "name": "${provider} local",
       "options": {
         "baseURL": "http://host.docker.internal:${provider_port}/v1"
       },
@@ -191,8 +222,14 @@ case $agent in
       }
     }
   },
-  "model": "${provider}/${model}",
+  "model": "${provider_name}/${model}",
   "permission": "allow"
+}
+EOF
+        cat << EOF > "${conf_dir}"/tui.json
+{
+  "\$schema": "https://opencode.ai/tui.json",
+  "mouse": false
 }
 EOF
         add_commands="source /root/.bashrc"
@@ -221,6 +258,10 @@ echo "options to run in container: ${add_options}"
 echo "exports to run in container: ${my_exports}"
 # exit 0
 # Launch the Agent
-echo "Container is UP. Launching ${agent} Agent with model ${model} and options: ${add_options}"
-docker exec -it ${cont_name} bash -c "export ${my_exports}; ${add_commands} ; ${agent} --model ${model} ${add_options}"
+echo "Container is UP. Launching ${agent} Agent with provider ${provider}"
+if [ "${provider}" = "wrapped_ollama" ]; then
+  docker exec -it ${cont_name} bash -c "export ${my_exports}; ${add_commands} ; ollama launch ${agent} --model ${model} -- ${add_options}"
+else
+  docker exec -it ${cont_name} bash -c "export ${my_exports}; ${add_commands} ; ${agent} --model ${model} ${add_options}"
+fi
 

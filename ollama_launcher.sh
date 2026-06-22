@@ -7,6 +7,12 @@ PIDFILE="$OLLAMA_DIR/ollama.pid"
 LOGFILE="$OLLAMA_DIR/logs/server.log"
 TAILFILE="$OLLAMA_DIR/ollama_tail.pid"
 
+# Establish robust defaults for long-context agent sandboxes
+# MEMORY LIMITS
+# sudo sysctl iogpu.wired_mem_breakpoint_cap=57344
+# 57344 translates to exactly 56 GB in Megabytes, leaving 8 GB for system tasks.
+lms_context_length=48128  # 262144 65536 48128 32768 16384 8192
+
 usage() {
   cat <<EOF
 Usage: $0 <command> [options]
@@ -35,11 +41,7 @@ is_running() {
 }
 
 start_service() {
-  # Establish robust defaults for long-context agent sandboxes
-  # MEMORY LIMITS
-  # sudo sysctl iogpu.wired_mem_breakpoint_cap=57344
-  # 57344 translates to exactly 56 GB in Megabytes, leaving 8 GB for system tasks.
-  local OLLAMA_CONTEXT_LENGTH="48128" # 262144 65536 48128 32768 16384 8192
+  local OLLAMA_CONTEXT_LENGTH="$lms_context_length"
   local OLLAMA_FLASH_ATTENTION="1" # Explicitly defaulted to 1 to enable quantized KV caches
   local OLLAMA_KV_CACHE_TYPE="q8_0" # Safest, highly-performant VRAM saving default
   local OLLAMA_KEEP_ALIVE="10m"     # Prevent model unloading/re-allocations during slow generations

@@ -139,6 +139,8 @@ fi
 
 case $agent in
       claude)
+        # https://backgroundclaude.com/cli-reference
+        
         # we need to add the env var IS_SANDBOX to avoid getting an error
         # https://code.claude.com/docs/en/permission-modes#skip-all-checks-with-bypasspermissions-mode
         # https://github.com/anthropics/claude-code/issues/3490
@@ -175,7 +177,13 @@ case $agent in
             exit 1
           fi
           add_commands="source /root/.bashrc"
-          add_options="--effort xhigh --dangerously-skip-permissions"
+          
+          # Claude defaults to injecting hundreds of specialized system prompt instructions and dynamic tags on every single turn,
+          # destroying your local model's Key-Value (KV) cache.
+          # Adding the --bare flag strip-mines unnecessary telemetry and forces a leaner, faster context loop
+          # https://medium.com/@vito.rallo/running-claude-code-with-local-llms-all-lies-until-now-3e9a0084dfe1
+          add_options="--bare --strict-mcp-config" # and --tools
+          add_options="${add_options} --effort xhigh --dangerously-skip-permissions"
           if [ -n "${resume}" ]; then
             add_options="$add_options --resume ${resume}"
           fi

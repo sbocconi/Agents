@@ -45,7 +45,7 @@ start_service() {
   local OLLAMA_FLASH_ATTENTION="1" # Explicitly defaulted to 1 to enable quantized KV caches
   local OLLAMA_KV_CACHE_TYPE="q8_0" # Safest, highly-performant VRAM saving default
   local OLLAMA_KEEP_ALIVE="10m"     # Prevent model unloading/re-allocations during slow generations
-  local TAIL_LOG=0
+  local TAIL_LOG=1
 
   if [ -f "$PIDFILE" ]; then
     local existing_pid

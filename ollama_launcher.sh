@@ -25,7 +25,6 @@ Commands:
 
 Options for start:
   -c VALUE   Set OLLAMA_CONTEXT_LENGTH (e.g. 131072 for long-context agents. Default: 8192)
-  -f         Set OLLAMA_FLASH_ATTENTION=1 (Enables Flash Attention, required for quantized KV cache)
   -k VALUE   Set OLLAMA_KV_CACHE_TYPE (Reduces VRAM constraints at massive contexts)
               16   - high precision (f16, default).
               8    - 8-bit quantization (q8_0, cuts memory usage by half, recommended).
@@ -58,13 +57,10 @@ start_service() {
   fi
 
   OPTIND=1
-  while getopts "c:fk:th" opt; do
+  while getopts "c:k:th" opt; do
     case $opt in
       c)
         OLLAMA_CONTEXT_LENGTH=$OPTARG
-        ;;
-      f)
-        OLLAMA_FLASH_ATTENTION="1"
         ;;
       k)
         case $OPTARG in
@@ -100,7 +96,7 @@ start_service() {
   export OLLAMA_HOST
 
   echo "====================================================="
-  echo "Launching Ollama Server with optimized variables:"
+  echo "Launching Ollama Server with:"
   echo "  - OLLAMA_CONTEXT_LENGTH   = $OLLAMA_CONTEXT_LENGTH"
   echo "  - OLLAMA_FLASH_ATTENTION  = $OLLAMA_FLASH_ATTENTION"
   echo "  - OLLAMA_KV_CACHE_TYPE    = $OLLAMA_KV_CACHE_TYPE"

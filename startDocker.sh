@@ -149,6 +149,7 @@ case $agent in
           CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 \
           IS_SANDBOX=1 \
           CLAUDE_CODE_DISABLE_MOUSE=1 \
+          CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1 \
           "
           if [ "$provider" = "ollama" ]; then
             my_exports=" ${my_exports} \

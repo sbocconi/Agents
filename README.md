@@ -4,7 +4,7 @@
 
 This repository contains a setup to run AI locally.
 
-It is geared towards MacOS, but some parts should be reusable on other operating system.
+It is geared towards MacOS, but most parts should be reusable on other operating system.
 
 The basis ideas of the code are:
 1. Agents should run unsupervised (not continously asking for permissions to perform actions), but to limit the risks they should run in a sandbox

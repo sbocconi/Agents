@@ -4,7 +4,7 @@
 
 This repository contains a setup to run AI locally.
 
-It is geared towards MacOS, but most parts should be reusable on other operating system.
+It is geared towards MacOS, but most parts should be reusable on other operating systems.
 
 The basis ideas of the code are:
 1. Agents should run unsupervised (not continously asking for permissions to perform actions), but to limit the risks they should run in a sandbox
@@ -74,6 +74,12 @@ Examples:
 
 Notes:
 - The script auto-selects `PythonDockerfile` for `-l python` and `GoDockerfile` for `-l go`.
+- The current working directory (`pwd`) from which you launch `startDocker.sh` is bind-mounted into the container at the exact same absolute path, and the container working directory is set there. In practice, this directory is assumed to be the target repo the agent will work on.
+- For `claude` and `opencode`, host-side agent state is also mounted so history/config remains visible and reusable on macOS:
+	- `$HOME/.claude` -> `/root/.claude`
+	- `$HOME/.claude.json` -> `/root/.claude.json`
+	- `$HOME/.local/share/opencode` -> `/root/.local/share/opencode`
+- Containers are named per project and language, using `agent-sandbox-<parent_dir>_<current_dir>-<language>` (for example `agent-sandbox-myorg_myrepo-python`). This gives you dedicated containers for each repo/language combination; if a matching container already exists, it is reused.
 - If you use `claude`, the script currently applies `--bare`, `--strict-mcp-config`, and `--dangerously-skip-permissions`.
 - `copilot` and `codex` are installed in images but are not enabled in this launcher flow yet.
 

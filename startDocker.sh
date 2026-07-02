@@ -64,12 +64,20 @@ done
 
 if [ "$provider" = "ollama" ]; then
   echo "Using Ollama provider"
+  provider_port="11434"
+  provider_name="ollama"
 elif [ "$provider" = "wrapped_ollama" ]; then
   echo "Using Wrapped Ollama to Ollamaprovider"
+  provider_port="11434"
+  provider_name="ollama"
 elif [ "$provider" = "lms" ]; then
   echo "Using LMS provider"
+  provider_port="1234"
+  provider_name="lms"
 elif [ "$provider" = "wrapped_lms" ]; then
   echo "Using Wrapped Ollama to LMS provider"
+  provider_port="1234"
+  provider_name="lms"
 else
   echo "Invalid provider: $provider"
   exit 1
@@ -196,18 +204,19 @@ case $agent in
         OPENCODE_TUI_CONFIG=\"${conf_dir}\"/tui.json \
         "
         if [ "$provider" = "ollama" ]; then
-          provider_port="11434"
-          provider_name="ollama"
+          :
         elif [ "$provider" = "wrapped_ollama" ]; then
-          provider_port="11434"
-          provider_name="ollama"
           my_exports=" ${my_exports} \
             OLLAMA_API_BASE_URL=http://host.docker.internal:11434 \
             OLLAMA_HOST=http://host.docker.internal:11434 \
             "
         elif [ "$provider" = "lms" ]; then
-          provider_port="1234"
-          provider_name="lms"
+          :
+        elif [ "$provider" = "wrapped_lms" ]; then
+          my_exports=" ${my_exports} \
+            OLLAMA_API_BASE_URL=http://host.docker.internal:1234 \
+            OLLAMA_HOST=http://host.docker.internal:1234 \
+            "
         else
           echo "Invalid provider: $provider"
           exit 1
@@ -252,8 +261,52 @@ EOF
         exit 1
         ;;
       codex)
-        echo "Codex agent is not yet supported, please use claude or opencode agents for now."
-        exit 1
+        conf_dir="$HOME/.codex"
+        if [ "$provider" = "ollama" ]; then
+          my_exports=" ${my_exports} \
+            OPENAI_API_BASE=\"http://host.docker.internal:11434\" \
+            OPENAI_API_KEY=\"ollama\" \
+            "
+        elif [ "$provider" = "wrapped_ollama" ]; then
+            my_exports=" ${my_exports} \
+            OLLAMA_API_BASE_URL=http://host.docker.internal:11434 \
+            OLLAMA_HOST=http://host.docker.internal:11434 \
+            OPENAI_API_KEY=\"ollama\" \
+            "
+        elif [ "$provider" = "lms" ]; then
+            my_exports=" ${my_exports} \
+            OPENAI_API_BASE=\"http://host.docker.internal:1234\" \
+            OPENAI_API_KEY=\"lms\" \
+            "
+        elif [ "$provider" = "wrapped_lms" ]; then
+            my_exports=" ${my_exports} \
+            OLLAMA_API_BASE_URL=http://host.docker.internal:1234 \
+            OLLAMA_HOST=http://host.docker.internal:1234 \
+            OPENAI_API_KEY=\"lms\" \
+            "
+        else
+          echo "Invalid provider: $provider"
+          exit 1
+        fi
+        cat << EOF > "${conf_dir}"/config.toml
+oss_provider = "${provider_name}"
+model = "${model}"
+model_reasoning_effort = "high"
+model_provider = "${provider_name}_id"
+[model_providers.${provider_name}_id]
+name = "${provider_name}"
+base_url = "http://host.docker.internal:${provider_port}/v1"
+api_key = "${provider}"
+wire_api = "responses"
+[projects."${mac_path}"]
+trust_level = "trusted"
+
+EOF
+
+        add_commands="source /root/.bashrc"
+        if [ -n "${resume}" ]; then
+              add_options="$add_options resume ${resume}"
+        fi
         ;;
       *)
         echo "Invalid agent: -$agent"

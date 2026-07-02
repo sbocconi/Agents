@@ -33,6 +33,8 @@ startDocker() {
       map_dirs="${map_dirs} -v $HOME/.local/share/opencode:/root/.local/share/opencode"
     elif [ "${agent}" == "copilot" ]; then
       map_dirs="${map_dirs} -v $HOME/.copilot:/root/.copilot"
+    elif [ "${agent}" == "codex" ]; then
+      map_dirs="${map_dirs} -v $HOME/.codex:/root/.codex"
     else
       echo "Unsupported agent: ${agent}"
       exit 1

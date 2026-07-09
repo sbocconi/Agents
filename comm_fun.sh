@@ -7,9 +7,6 @@ startDocker() {
   map_dirs=${4}
   Dockerfile=${5}
 
-  echo "Pruning unused Docker cache..."
-  ${DOCKER_BIN} builder prune -f || { echo "Failed to prune Docker cache"; exit 1; }
-
   if [ "$(${DOCKER_BIN} ps -q -f name=${cont_name})" ]; then
     echo "Container '${cont_name}' is already running."
   elif [ "$(${DOCKER_BIN} ps -aq -f name=${cont_name})" ]; then
@@ -35,6 +32,8 @@ startDocker() {
       map_dirs="${map_dirs} -v $HOME/.copilot:/root/.copilot"
     elif [ "${agent}" == "codex" ]; then
       map_dirs="${map_dirs} -v $HOME/.codex:/root/.codex"
+    elif [ "${agent}" == "pi" ]; then
+      map_dirs="${map_dirs} -v $HOME/.pi:/root/.pi"
     else
       echo "Unsupported agent: ${agent}"
       exit 1
@@ -61,4 +60,6 @@ startDocker() {
         fi
     done
   fi
+  echo "Pruning unused Docker cache..."
+  ${DOCKER_BIN} builder prune -f || { echo "Failed to prune Docker cache"; exit 1; }
 }

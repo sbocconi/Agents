@@ -3,7 +3,8 @@ set -euo pipefail
 
 lms_cmd='"/Applications/LM Studio.app/Contents/Resources/app/.webpack/lms"'
 lms_port=1234
-lms_def_context_length=32768  # 262144 65536 48128 32768 16384 8192
+# 1024=1K 262144=256K, 65536=64K, 48128=47K, 32768=32K, 16384=16K, 8192=8K
+lms_def_context_length=$((24 * 1024))
 model_identifier="qwen3-coder-next"
 model="qwen/$model_identifier"
 

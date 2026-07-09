@@ -203,7 +203,7 @@ case $agent in
             echo "Invalid provider: $provider"
             exit 1
           fi
-          # add_commands="source /root/.bashrc"
+          add_commands=":"
           
           
           add_options="${add_options} --effort xhigh --dangerously-skip-permissions"
@@ -271,7 +271,7 @@ EOF
   "mouse": false
 }
 EOF
-        # add_commands="source /root/.bashrc"
+        add_commands=":"
         add_options=""
         if [ -n "${resume}" ]; then
               add_options="$add_options -s ${resume}"
@@ -318,6 +318,10 @@ EOF
           echo "Invalid provider: $provider"
           exit 1
         fi
+# Codex is transitioning to a new way to have profiles
+# and the config here under does not work anymore
+# https://developers.openai.com/codex/config-advanced#profiles
+
 #         cat << EOF > "${conf_dir}"/config.toml
 # oss_provider = "${provider_name}"
 # model = "${model_realname}"
@@ -334,7 +338,7 @@ EOF
 # trust_level = "trusted"
 
 # EOF
-        # add_commands="source /root/.bashrc"
+        add_commands=":"
         if [ -n "${resume}" ]; then
               add_options="$add_options resume ${resume}"
         fi
@@ -344,7 +348,7 @@ EOF
         mkdir -p "${conf_dir}"
         my_exports="PI_CODING_AGENT_DIR=\"${conf_dir}\" \
         "
-        prov_models_list=$(curl http://localhost:${provider_port}/v1/models 2>/dev/null | jq -r '.data[] | "{\"id\" : \"\(.id)\"},"')
+        prov_models_list=$(curl http://localhost:${provider_port}/api/v0/models 2>/dev/null | jq -r '.data[] | select(.loaded_context_length != null) | "{\"id\" : \"\(.id)\",\"contextWindow\" : \(.loaded_context_length), \"maxTokens\": 4096},"')
         prov_models_list=$(echo ${prov_models_list::-1})
         if [ "$provider" = "ollama" ]; then
           :
@@ -379,7 +383,7 @@ EOF
   }
 }
 EOF
-        # add_commands="source /root/.bashrc"
+        add_commands="pi update --extensions"
         add_options=""
         if [ -n "${resume}" ]; then
               add_options="$add_options --session ${resume}"
@@ -392,17 +396,15 @@ EOF
     esac
 
 my_exports=$(echo "${my_exports}" | tr -s ' ')
-# echo "commands to run in container: ${add_commands}"
+echo "commands to run in container: ${add_commands}"
 echo "options to run in container: ${add_options}"
 echo "exports to run in container: ${my_exports}"
 # exit 0
 # Launch the Agent
 echo "Container is UP. Launching ${agent} Agent with provider ${provider}"
 if [ "${provider}" = "wrapped_ollama" ]; then
-  # docker exec -it ${cont_name} bash -c "export ${my_exports}; ${add_commands} ; ollama launch ${agent} --model ${model_realname} -- ${add_options}"
-  docker exec -it ${cont_name} bash -c "export ${my_exports}; ollama launch ${agent} --model ${model_realname} -- ${add_options}"
+  docker exec -it ${cont_name} bash -c "export ${my_exports}; ${add_commands} ; ollama launch ${agent} --model ${model_realname} -- ${add_options}"
 else
-  # docker exec -it ${cont_name} bash -c "export ${my_exports}; ${add_commands} ; ${agent} --model ${model_realname} ${add_options}"
-  docker exec -it ${cont_name} bash -c "export ${my_exports}; ${agent} --model ${model_realname} ${add_options}"
+  docker exec -it ${cont_name} bash -c "export ${my_exports}; ${add_commands} ; ${agent} --model ${model_realname} ${add_options}"
 fi
 

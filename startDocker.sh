@@ -86,12 +86,16 @@ elif [ "$provider" = "wrapped_lms" ]; then
   echo "Using Wrapped Ollama to LMS provider"
   provider_port="1234"
   provider_name="lms"
+elif [ "$provider" = "mlx-serve" ]; then
+  echo "Using mlx-serve provider"
+  provider_port="1234"
+  provider_name="mlx-serve"
 else
   echo "Invalid provider: $provider"
   exit 1
 fi
 
-model_realname=$(curl http://localhost:${provider_port}/v1/models 2>/dev/null | jq -r '.data[].id' | grep --max-count 1 ${model})
+model_realname=$(curl http://localhost:${provider_port}/v1/models 2>/dev/null | jq -r '.data[].id' | grep -i --max-count 1 ${model})
 
 if [ "${language}" = "python" ]; then
     dockerfile="${SCRIPT_DIR}/PythonDockerfile"
@@ -169,43 +173,28 @@ case $agent in
           CLAUDE_CODE_DISABLE_MOUSE=1 \
           CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1 \
           "
-          if [ "$provider" = "ollama" ]; then
+          if [ "$provider" = "ollama" -o "$provider" = "lms" -o "$provider" = "mlx-serve" ]; then
             my_exports=" ${my_exports} \
-              ANTHROPIC_BASE_URL=http://host.docker.internal:11434 \
-              ANTHROPIC_AUTH_TOKEN=\"ollama\" \
+              ANTHROPIC_BASE_URL=http://host.docker.internal:${provider_port} \
+              ANTHROPIC_AUTH_TOKEN=\"$provider_name\" \
               "
             # Claude defaults to injecting hundreds of specialized system prompt instructions and dynamic tags on every single turn,
             # destroying your local model's Key-Value (KV) cache.
             # Adding the --bare flag strip-mines unnecessary telemetry and forces a leaner, faster context loop
             # https://medium.com/@vito.rallo/running-claude-code-with-local-llms-all-lies-until-now-3e9a0084dfe1
             add_options="--bare --strict-mcp-config" # and --tools
-          elif [ "$provider" = "wrapped_ollama" ]; then
+          elif [ "$provider" = "wrapped_ollama" -o "$provider" = "wrapped_lms" ]; then
             my_exports=" ${my_exports} \
-            OLLAMA_API_BASE_URL=http://host.docker.internal:11434 \
-            OLLAMA_HOST=http://host.docker.internal:11434 \
-            ANTHROPIC_AUTH_TOKEN=\"ollama\" \
+            OLLAMA_API_BASE_URL=http://host.docker.internal:${provider_port} \
+            OLLAMA_HOST=http://host.docker.internal:${provider_port} \
+            ANTHROPIC_AUTH_TOKEN=\"$provider_name\" \
             "
-          elif [ "$provider" = "lms" ]; then
-            my_exports=" ${my_exports} \
-              ANTHROPIC_BASE_URL=http://host.docker.internal:1234 \
-              ANTHROPIC_AUTH_TOKEN=\"lms\" \
-              "
-            add_options="--bare --strict-mcp-config" # and --tools
-          elif [ "$provider" = "wrapped_lms" ]; then
-            echo "Does not work yet, try the other providers"
-            exit 1
-            my_exports=" ${my_exports} \
-              OLLAMA_API_BASE_URL=http://host.docker.internal:1234 \
-              OLLAMA_HOST=http://host.docker.internal:1234 \
-              ANTHROPIC_AUTH_TOKEN=\"lms\" \
-              "
           else
             echo "Invalid provider: $provider"
             exit 1
           fi
           add_commands=":"
-          
-          
+                    
           add_options="${add_options} --effort xhigh --dangerously-skip-permissions"
           if [ -n "${resume}" ]; then
             add_options="$add_options --resume ${resume}"
@@ -227,19 +216,12 @@ case $agent in
         done
         prov_models_list=$(echo $(IFS=,;printf  "%s" "${prov_models_list[*]}"))
 
-        if [ "$provider" = "ollama" ]; then
+        if [ "$provider" = "ollama" -o "$provider" = "lms" -o "$provider" = "mlx-serve" ]; then
           :
-        elif [ "$provider" = "wrapped_ollama" ]; then
+        elif [ "$provider" = "wrapped_ollama" -o "$provider" = "wrapped_lms" ]; then
           my_exports=" ${my_exports} \
-            OLLAMA_API_BASE_URL=http://host.docker.internal:11434 \
-            OLLAMA_HOST=http://host.docker.internal:11434 \
-            "
-        elif [ "$provider" = "lms" ]; then
-          :
-        elif [ "$provider" = "wrapped_lms" ]; then
-          my_exports=" ${my_exports} \
-            OLLAMA_API_BASE_URL=http://host.docker.internal:1234 \
-            OLLAMA_HOST=http://host.docker.internal:1234 \
+            OLLAMA_API_BASE_URL=http://host.docker.internal:${provider_port} \
+            OLLAMA_HOST=http://host.docker.internal:${provider_port} \
             "
         else
           echo "Invalid provider: $provider"
@@ -284,35 +266,23 @@ EOF
       codex)
         conf_dir="./.codex"
         mkdir -p "${conf_dir}"
-        if [ "$provider" = "ollama" ]; then
+        if [ "$provider" = "ollama" -o "$provider" = "lms" -o "$provider" = "mlx-serve" ]; then
           echo "codex does not play well without ollama, use wrapped_ollama"
           exit 1
           my_exports=" ${my_exports} \
-            OPENAI_API_BASE=\"http://host.docker.internal:11434\" \
-            OPENAI_API_KEY=\"ollama\" \
+            OPENAI_API_BASE=\"http://host.docker.internal:${provider_port}\" \
+            OPENAI_API_KEY=\"${provider_name}\" \
             "
             add_options="--profile ${provider_name}_id $add_options"
-        elif [ "$provider" = "wrapped_ollama" ]; then
+        elif [ "$provider" = "wrapped_ollama" -o "$provider" = "wrapped_lms" ]; then
+          if [ "$provider" = "wrapped_lms" ]; then
+            echo "codex does not play well with ollama talking to lms, use wrapped_ollama"
+            exit 1
+          fi
           my_exports=" ${my_exports} \
-            OLLAMA_API_BASE_URL=http://host.docker.internal:11434 \
-            OLLAMA_HOST=http://host.docker.internal:11434 \
-            OPENAI_API_KEY=\"ollama\" \
-            "
-        elif [ "$provider" = "lms" ]; then
-          echo "codex does not play well without ollama, use wrapped_ollama"
-          exit 1
-          my_exports=" ${my_exports} \
-            OPENAI_API_BASE=\"http://host.docker.internal:1234\" \
-            OPENAI_API_KEY=\"lms\" \
-            "
-            add_options="--oss --profile ${provider_name}_id $add_options"
-        elif [ "$provider" = "wrapped_lms" ]; then
-          echo "codex does not play well with ollama talking to lms, use wrapped_ollama"
-          exit 1
-          my_exports=" ${my_exports} \
-            OLLAMA_API_BASE_URL=http://host.docker.internal:1234 \
-            OLLAMA_HOST=http://host.docker.internal:1234 \
-            OPENAI_API_KEY=\"lms\" \
+            OLLAMA_API_BASE_URL=http://host.docker.internal:${provider_port} \
+            OLLAMA_HOST=http://host.docker.internal:${provider_port} \
+            OPENAI_API_KEY=\"${provider_name}\" \
             "
         else
           echo "Invalid provider: $provider"
@@ -348,21 +318,16 @@ EOF
         mkdir -p "${conf_dir}"
         my_exports="PI_CODING_AGENT_DIR=\"${conf_dir}\" \
         "
-        prov_models_list=$(curl http://localhost:${provider_port}/api/v0/models 2>/dev/null | jq -r '.data[] | select(.loaded_context_length != null) | "{\"id\" : \"\(.id)\",\"contextWindow\" : \(.loaded_context_length), \"maxTokens\": 4096},"')
+        prov_models_list=$(curl http://localhost:${provider_port}/v1/models 2>/dev/null | jq -r '.data[] | "{\"id\" : \"\(.id)\",\"contextWindow\" : 48128},"')
         prov_models_list=$(echo ${prov_models_list::-1})
-        if [ "$provider" = "ollama" ]; then
+        # prov_models_list=$(curl http://localhost:${provider_port}/api/v0/models 2>/dev/null | jq -r '.data[] | select(.loaded_context_length != null) | "{\"id\" : \"\(.id)\",\"contextWindow\" : \(.loaded_context_length)},"')
+
+        if [ "$provider" = "ollama" -o "$provider" = "lms" -o "$provider" = "mlx-serve" ]; then
           :
-        elif [ "$provider" = "wrapped_ollama" ]; then
+        elif [ "$provider" = "wrapped_ollama" -o "$provider" = "wrapped_lms" ]; then
           my_exports=" ${my_exports} \
-            OLLAMA_API_BASE_URL=http://host.docker.internal:11434 \
-            OLLAMA_HOST=http://host.docker.internal:11434 \
-            "
-        elif [ "$provider" = "lms" ]; then
-          :
-        elif [ "$provider" = "wrapped_lms" ]; then
-          my_exports=" ${my_exports} \
-            OLLAMA_API_BASE_URL=http://host.docker.internal:1234 \
-            OLLAMA_HOST=http://host.docker.internal:1234 \
+            OLLAMA_API_BASE_URL=http://host.docker.internal:${provider_port} \
+            OLLAMA_HOST=http://host.docker.internal:${provider_port} \
             "
         else
           echo "Invalid provider: $provider"
@@ -383,7 +348,7 @@ EOF
   }
 }
 EOF
-        add_commands="pi update --extensions"
+        add_commands="pi update && pi update --extensions"
         add_options=""
         if [ -n "${resume}" ]; then
               add_options="$add_options --session ${resume}"
@@ -402,7 +367,7 @@ echo "exports to run in container: ${my_exports}"
 # exit 0
 # Launch the Agent
 echo "Container is UP. Launching ${agent} Agent with provider ${provider}"
-if [ "${provider}" = "wrapped_ollama" ]; then
+if [[ "${provider}" == *"wrapped_"* ]]; then
   docker exec -it ${cont_name} bash -c "export ${my_exports}; ${add_commands} ; ollama launch ${agent} --model ${model_realname} -- ${add_options}"
 else
   docker exec -it ${cont_name} bash -c "export ${my_exports}; ${add_commands} ; ${agent} --model ${model_realname} ${add_options}"

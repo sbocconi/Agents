@@ -34,6 +34,8 @@ startDocker() {
       map_dirs="${map_dirs} -v $HOME/.codex:/root/.codex"
     elif [ "${agent}" == "pi" ]; then
       map_dirs="${map_dirs} -v $HOME/.pi:/root/.pi"
+    elif [ "${agent}" == "mlx-serve" ]; then
+      map_dirs="${map_dirs} -v $HOME/.mlx:/root/.mlx"
     else
       echo "Unsupported agent: ${agent}"
       exit 1

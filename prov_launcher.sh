@@ -1,8 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 
-prov_file="./prov_file.txt"
-
 lms_cmd='"/Applications/LM Studio.app/Contents/Resources/app/.webpack/lms"'
 lms_port=1234
 
@@ -57,11 +55,14 @@ start_service() {
   local tail_log=0
   local provider=""
 
-  local running_provider=$(get_running_provider)
-  if [ "$running_provider" != "" ]; then
-    stop_service
-  fi
+  local existing_provider=""
+  
+  existing_provider=$(get_running_provider)
 
+  while existing_provider=$(get_running_provider) && [ "$existing_provider" != "" ]; do
+    stop_service $existing_provider
+  done
+  
   OPTIND=1
   while getopts "c:hk:m:p:t" opt; do
     case $opt in
@@ -158,10 +159,9 @@ start_service() {
     echo "Ollama running in background (PID=$pid)."  
   elif [ "$provider" = "mlx_serve" ]; then
     # --skip-mem-preflight \ 
+    # --model ~/.lmstudio/models/lmstudio-community/Qwen3-Coder-Next-MLX-4bit/ \
     mlx-serve --serve \
-    --skip-mem-preflight \
     --model-dir ~/.lmstudio/models/lmstudio-community/ \
-    --model ~/.lmstudio/models/lmstudio-community/Qwen3-Coder-Next-MLX-4bit/ \
     --ctx-size $context_length \
     --port ${mlx_serve_port} \
     --log-level debug \
@@ -177,13 +177,12 @@ start_service() {
   if [ "$tail_log" -eq 1 ]; then
     tail_service_background
   fi
-  echo "$provider" > "$prov_file"
 }
 
 stop_service() {
   local provider=$(get_running_provider)
 
-  [ "$provider" = "" ] && { echo "No running provider"; exit 1; }
+  [ "$provider" = "" ] && { echo "No running provider"; return 1; }
 
   if [ "$provider" = "lms" ]; then
     lms_loaded_model | grep "$model_identifier" >/dev/null && eval $lms_cmd unload "$model_identifier"
@@ -193,7 +192,7 @@ stop_service() {
     if [ ! -f "$ollama_pid" ]; then
       echo "No PID file found; ollama does not appear to be running."
       stop_tail_pid
-      exit 1
+      return 1
     else
       local pid
       pid=$(<"$ollama_pid")
@@ -201,7 +200,7 @@ stop_service() {
       if ! is_pid_running "$pid"; then
         echo "No running process found for PID $pid."
         stop_tail_pid
-        exit 1
+        return 1
       else
         kill "$pid"
         echo "Stopped ollama (PID=$pid)."
@@ -212,7 +211,7 @@ stop_service() {
     if [ ! -f "${mlx_serve_pid}" ]; then
       echo "No PID file found; mlx-serve does not appear to be running."
       stop_tail_pid
-      exit 1
+      return 1
     else
       local pid
       pid=$(<"${mlx_serve_pid}")
@@ -220,7 +219,7 @@ stop_service() {
       if ! is_pid_running "$pid"; then
         echo "No running process found for PID $pid."
         stop_tail_pid
-        exit 1
+        return 1
       else
         kill "$pid"
         echo "Stopped mlx-serve (PID=$pid)."
@@ -229,15 +228,20 @@ stop_service() {
     stop_tail_pid
   else
     echo "Unknown provider: $provider"
-    rm -f $prov_file
     exit 1
   fi
-  rm -f $prov_file
 }
 
 status_service() {
-  local provider=$(get_running_provider)
-  [ "$provider" = "" ] && { echo "No running provider"; exit 1; }
+  set +u
+  local provider
+  if [ "${1}" = "" ]; then
+    provider=$(get_running_provider)
+  else
+    provider=${1}
+  fi
+  set -u
+  [ "$provider" = "" ] && { echo "No running provider"; return 1; }
 
   if [ "$provider" = "lms" ]; then
     res=$(eval $lms_cmd server status 2>&1)
@@ -255,26 +259,26 @@ status_service() {
       pid=$(<"$ollama_pid")
       if is_pid_running "$pid"; then
         echo "Ollama is running (PID=$pid)."
-        exit 0
+        return 0
       fi
       echo "PID file exists but process $pid is not running."
-      exit 1
+      return 1
     fi
     echo "Ollama is not running."
-    exit 1
+    return 1
   elif [ "$provider" = "mlx_serve" ]; then
     if [ -f "$mlx_serve_pid" ]; then
       local pid
       pid=$(<"$mlx_serve_pid")
       if is_pid_running "$pid"; then
         echo "mlx-serve is running (PID=$pid)."
-        exit 0
+        return 0
       fi
       echo "PID file exists but process $pid is not running."
-      exit 1
+      return 1
     fi
     echo "mlx-serve is not running."
-    exit 1
+    return 1
   else
     echo "Unknown provider: $provider"
     exit 1
@@ -292,12 +296,18 @@ is_pid_running() {
 }
 
 get_running_provider() {
-  if [ -f "$prov_file" ]; then
-    local running_provider=$(<"$prov_file")
-    echo "$running_provider"
+  local running_provider=""
+  if [ -f "$mlx_serve_pid" ]; then
+    running_provider="mlx_serve"
+  elif [ -f "$ollama_pid" ]; then
+    running_provider="ollama"
+  elif status_service "lms" >/dev/null; then
+    echo "trying lms"
+    running_provider="lms"
   else
-    echo ""
+    :
   fi
+  echo "$running_provider"
 }
 
 stop_tail_pid() {
@@ -314,7 +324,7 @@ stop_tail_pid() {
 
 tail_service_background() {
   local provider=$(get_running_provider)
-  [ "$provider" = "" ] && { echo "No running provider"; exit 1; }
+  [ "$provider" = "" ] && { echo "No running provider"; return 1; }
   
   if [ "$provider" = "lms" ]; then
     eval $lms_cmd log stream &

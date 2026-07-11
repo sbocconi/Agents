@@ -30,11 +30,15 @@ resume=""
 map_dirs=""
 language=""
 provider=""
+llm_context=0
 
-while getopts "a:d:hl:m:p:r:" opt; do
+while getopts "a:c:d:hl:m:p:r:" opt; do
     case $opt in
       a)
         agent="${OPTARG}"
+        ;;
+      c)
+        llm_context=$(( "${OPTARG}" * 1024 ))
         ;;
       d)
         map_dirs="${map_dirs} -v ${OPTARG}:${OPTARG}:ro"
@@ -43,11 +47,12 @@ while getopts "a:d:hl:m:p:r:" opt; do
         echo "Usage: $0 [OPTIONS]"
         echo "Options:"
         echo "  -a AGENT    Specify the agent to use (default: claude)"
+        echo "  -c CONTEXT  Specify the size of the LLM context (in K)"
         echo "  -d DIR      Specify a directory to map into the container"
         echo "  -h          Display this help message"
         echo "  -l LANGUAGE  Specify the programming language"
         echo "  -m MODEL     Specify the model to use"
-        echo "  -p PROVIDER  Specify the provider (ollama, wrapped_ollama, or lms)"
+        echo "  -p PROVIDER  Specify the provider (ollama, wrapped_ollama, lms or mlx-serve)"
         echo "  -r RESUME   Specify a resume checkpoint for the agent"
         exit 0
         ;;
@@ -69,6 +74,12 @@ while getopts "a:d:hl:m:p:r:" opt; do
         ;;
     esac
 done
+
+if [ ${llm_context} = 0 ]; then
+  echo "Please specify a context length"
+  exit 1
+fi
+
 
 if [ "$provider" = "ollama" ]; then
   echo "Using Ollama provider"
@@ -166,9 +177,10 @@ case $agent in
         # we need to add the env var IS_SANDBOX to avoid getting an error
         # https://code.claude.com/docs/en/permission-modes#skip-all-checks-with-bypasspermissions-mode
         # https://github.com/anthropics/claude-code/issues/3490
+        # CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 \
         my_exports=" \
           ANTHROPIC_TIMEOUT_MS=600000 \
-          CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 \
+          CLAUDE_CODE_AUTO_COMPACT_WINDOW=${llm_context}
           IS_SANDBOX=1 \
           CLAUDE_CODE_DISABLE_MOUSE=1 \
           CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1 \
@@ -209,11 +221,16 @@ case $agent in
         prov_models_list=()
         for mod in $(curl http://localhost:${provider_port}/v1/models 2>/dev/null | jq -r '.data[].id');
         do
-            prov_models_list+=("\"${mod}\": { \
-                  \"name\": \"${mod}\", \
-                  \"tools\": true
+                prov_models_list+=("\"${mod}\": { \
+                        \"name\": \"${mod}\", \
+                        \"tools\": true,
+                        \"limit\": { \
+                          \"context\": ${llm_context}, \
+                          \"output\": 8192 \
+                        } \
                 }")
         done
+
         prov_models_list=$(echo $(IFS=,;printf  "%s" "${prov_models_list[*]}"))
 
         if [ "$provider" = "ollama" -o "$provider" = "lms" -o "$provider" = "mlx-serve" ]; then
@@ -318,7 +335,7 @@ EOF
         mkdir -p "${conf_dir}"
         my_exports="PI_CODING_AGENT_DIR=\"${conf_dir}\" \
         "
-        prov_models_list=$(curl http://localhost:${provider_port}/v1/models 2>/dev/null | jq -r '.data[] | "{\"id\" : \"\(.id)\",\"contextWindow\" : 48128},"')
+        prov_models_list=$(curl http://localhost:${provider_port}/v1/models 2>/dev/null | jq -r --argjson ctx "${llm_context}" '.data[] | "{\"id\" : \"\(.id)\",\"contextWindow\" : \($ctx)},"')
         prov_models_list=$(echo ${prov_models_list::-1})
         # prov_models_list=$(curl http://localhost:${provider_port}/api/v0/models 2>/dev/null | jq -r '.data[] | select(.loaded_context_length != null) | "{\"id\" : \"\(.id)\",\"contextWindow\" : \(.loaded_context_length)},"')
 

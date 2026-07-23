@@ -26,13 +26,16 @@ model="qwen3-coder-next"
 # Installed on the docker image:  claude.ai, opencode.ai, codex, copilot, pi      
 agent="claude"
 
+PROVIDERS="mlx-serve lmstudio ollama"
 resume=""
 map_dirs=""
 language=""
 provider=""
+wrapped="n"
 llm_context=0
+echo_command="n"
 
-while getopts "a:c:d:hl:m:p:r:" opt; do
+while getopts "a:c:d:ehl:m:r:w" opt; do
     case $opt in
       a)
         agent="${OPTARG}"
@@ -43,17 +46,21 @@ while getopts "a:c:d:hl:m:p:r:" opt; do
       d)
         map_dirs="${map_dirs} -v ${OPTARG}:${OPTARG}:ro"
         ;;
+      e)
+        echo_command="y"
+        ;;
       h)
         echo "Usage: $0 [OPTIONS]"
         echo "Options:"
         echo "  -a AGENT    Specify the agent to use (default: claude)"
         echo "  -c CONTEXT  Specify the size of the LLM context (in K)"
         echo "  -d DIR      Specify a directory to map into the container"
+        echo "  -e          Echo the command that you would run instead of running it"
         echo "  -h          Display this help message"
         echo "  -l LANGUAGE  Specify the programming language"
         echo "  -m MODEL     Specify the model to use"
-        echo "  -p PROVIDER  Specify the provider (ollama, wrapped_ollama, lms or mlx-serve)"
         echo "  -r RESUME   Specify a resume checkpoint for the agent"
+        echo "  -w          Launch agent via ollama"
         exit 0
         ;;
       l)
@@ -68,6 +75,9 @@ while getopts "a:c:d:hl:m:p:r:" opt; do
       r)
         resume="${OPTARG}"
         ;;
+      w)
+        wrapped="y"
+        ;;
       *)
         echo "Invalid option: -$opt"
         exit 1
@@ -80,23 +90,23 @@ if [ ${llm_context} = 0 ]; then
   exit 1
 fi
 
+for pr in ${PROVIDERS};
+do
+  if ps -e | grep $pr | grep -v grep >/dev/null; then
+    provider="$pr"
+    break
+  fi
+done  
 
 if [ "$provider" = "ollama" ]; then
   echo "Using Ollama provider"
   provider_port="11434"
   provider_name="ollama"
-elif [ "$provider" = "wrapped_ollama" ]; then
-  echo "Using Wrapped Ollama to Ollamaprovider"
-  provider_port="11434"
-  provider_name="ollama"
-elif [ "$provider" = "lms" ]; then
-  echo "Using LMS provider"
+  wrapped="y"
+elif [ "$provider" = "lmstudio" ]; then
+  echo "Using LMStudio provider"
   provider_port="1234"
-  provider_name="lms"
-elif [ "$provider" = "wrapped_lms" ]; then
-  echo "Using Wrapped Ollama to LMS provider"
-  provider_port="1234"
-  provider_name="lms"
+  provider_name="lmstudio"
 elif [ "$provider" = "mlx-serve" ]; then
   echo "Using mlx-serve provider"
   provider_port="1234"
@@ -180,12 +190,12 @@ case $agent in
         # CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 \
         my_exports=" \
           ANTHROPIC_TIMEOUT_MS=600000 \
-          CLAUDE_CODE_AUTO_COMPACT_WINDOW=${llm_context}
+          CLAUDE_CODE_AUTO_COMPACT_WINDOW=${llm_context} \
           IS_SANDBOX=1 \
           CLAUDE_CODE_DISABLE_MOUSE=1 \
           CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1 \
           "
-          if [ "$provider" = "ollama" -o "$provider" = "lms" -o "$provider" = "mlx-serve" ]; then
+          if [ "$wrapped" = "n" ]; then
             my_exports=" ${my_exports} \
               ANTHROPIC_BASE_URL=http://host.docker.internal:${provider_port} \
               ANTHROPIC_AUTH_TOKEN=\"$provider_name\" \
@@ -195,17 +205,14 @@ case $agent in
             # Adding the --bare flag strip-mines unnecessary telemetry and forces a leaner, faster context loop
             # https://medium.com/@vito.rallo/running-claude-code-with-local-llms-all-lies-until-now-3e9a0084dfe1
             add_options="--bare --strict-mcp-config" # and --tools
-          elif [ "$provider" = "wrapped_ollama" -o "$provider" = "wrapped_lms" ]; then
+          else
             my_exports=" ${my_exports} \
             OLLAMA_API_BASE_URL=http://host.docker.internal:${provider_port} \
             OLLAMA_HOST=http://host.docker.internal:${provider_port} \
             ANTHROPIC_AUTH_TOKEN=\"$provider_name\" \
             "
-          else
-            echo "Invalid provider: $provider"
-            exit 1
           fi
-          add_commands=":"
+          add_commands="claude update"
                     
           add_options="${add_options} --effort xhigh --dangerously-skip-permissions"
           if [ -n "${resume}" ]; then
@@ -233,16 +240,13 @@ case $agent in
 
         prov_models_list=$(echo $(IFS=,;printf  "%s" "${prov_models_list[*]}"))
 
-        if [ "$provider" = "ollama" -o "$provider" = "lms" -o "$provider" = "mlx-serve" ]; then
+        if [ "$wrapped" = "n" ]; then
           :
-        elif [ "$provider" = "wrapped_ollama" -o "$provider" = "wrapped_lms" ]; then
+        else
           my_exports=" ${my_exports} \
             OLLAMA_API_BASE_URL=http://host.docker.internal:${provider_port} \
             OLLAMA_HOST=http://host.docker.internal:${provider_port} \
             "
-        else
-          echo "Invalid provider: $provider"
-          exit 1
         fi
 
         cat << EOF > "${conf_dir}"/opencode.json 
@@ -283,17 +287,17 @@ EOF
       codex)
         conf_dir="./.codex"
         mkdir -p "${conf_dir}"
-        if [ "$provider" = "ollama" -o "$provider" = "lms" -o "$provider" = "mlx-serve" ]; then
-          echo "codex does not play well without ollama, use wrapped_ollama"
+        if [ "$wrapped" = "n" ]; then
+          echo "codex does not play well without ollama, use wrapped mode"
           exit 1
           my_exports=" ${my_exports} \
             OPENAI_API_BASE=\"http://host.docker.internal:${provider_port}\" \
             OPENAI_API_KEY=\"${provider_name}\" \
             "
             add_options="--profile ${provider_name}_id $add_options"
-        elif [ "$provider" = "wrapped_ollama" -o "$provider" = "wrapped_lms" ]; then
-          if [ "$provider" = "wrapped_lms" ]; then
-            echo "codex does not play well with ollama talking to lms, use wrapped_ollama"
+        else
+          if [ "$provider" = "lmstudio" ]; then
+            echo "codex does not play well with ollama talking to lmstudio, use wrapped and ollama"
             exit 1
           fi
           my_exports=" ${my_exports} \
@@ -301,9 +305,6 @@ EOF
             OLLAMA_HOST=http://host.docker.internal:${provider_port} \
             OPENAI_API_KEY=\"${provider_name}\" \
             "
-        else
-          echo "Invalid provider: $provider"
-          exit 1
         fi
 # Codex is transitioning to a new way to have profiles
 # and the config here under does not work anymore
@@ -335,20 +336,23 @@ EOF
         mkdir -p "${conf_dir}"
         my_exports="PI_CODING_AGENT_DIR=\"${conf_dir}\" \
         "
+        # Remove maxTokens as it generates "Error: Model stopped because it reached the maximum output token limit."
+        # Apparently pi defaults to the provider's default if no maxTokens is set in config, and if no maxTokens to 16384.
+        # It then sends to the API the minimun between:
+        # model.maxTokens and (available context window minus safety tokens (4096) and estimated context size)
+        # 
+        # prov_models_list=$(curl http://localhost:${provider_port}/v1/models 2>/dev/null | jq -r --argjson ctx "${llm_context}" '.data[] | "{\"id\" : \"\(.id)\",\"contextWindow\" : \($ctx), \"maxTokens\" : 8192},"')
         prov_models_list=$(curl http://localhost:${provider_port}/v1/models 2>/dev/null | jq -r --argjson ctx "${llm_context}" '.data[] | "{\"id\" : \"\(.id)\",\"contextWindow\" : \($ctx)},"')
         prov_models_list=$(echo ${prov_models_list::-1})
         # prov_models_list=$(curl http://localhost:${provider_port}/api/v0/models 2>/dev/null | jq -r '.data[] | select(.loaded_context_length != null) | "{\"id\" : \"\(.id)\",\"contextWindow\" : \(.loaded_context_length)},"')
 
-        if [ "$provider" = "ollama" -o "$provider" = "lms" -o "$provider" = "mlx-serve" ]; then
+        if [ "$wrapped" = "n" ]; then
           :
-        elif [ "$provider" = "wrapped_ollama" -o "$provider" = "wrapped_lms" ]; then
+        else
           my_exports=" ${my_exports} \
             OLLAMA_API_BASE_URL=http://host.docker.internal:${provider_port} \
             OLLAMA_HOST=http://host.docker.internal:${provider_port} \
             "
-        else
-          echo "Invalid provider: $provider"
-          exit 1
         fi
 
         cat << EOF > "${conf_dir}"/models.json 
@@ -365,7 +369,7 @@ EOF
   }
 }
 EOF
-        add_commands="pi update && pi update --extensions"
+        add_commands="pi update && pi install git:github.com/DietrichGebert/ponytail && pi update --extensions"
         add_options=""
         if [ -n "${resume}" ]; then
               add_options="$add_options --session ${resume}"
@@ -384,9 +388,15 @@ echo "exports to run in container: ${my_exports}"
 # exit 0
 # Launch the Agent
 echo "Container is UP. Launching ${agent} Agent with provider ${provider}"
-if [[ "${provider}" == *"wrapped_"* ]]; then
-  docker exec -it ${cont_name} bash -c "export ${my_exports}; ${add_commands} ; ollama launch ${agent} --model ${model_realname} -- ${add_options}"
+if [ "${wrapped}" = "y" ]; then
+  docker_cmd="docker exec -it ${cont_name} bash -c 'export ${my_exports}; . ~/.bashrc; ${add_commands} ; ollama launch ${agent} --model ${model_realname} -- ${add_options}' "
 else
-  docker exec -it ${cont_name} bash -c "export ${my_exports}; ${add_commands} ; ${agent} --model ${model_realname} ${add_options}"
+  docker_cmd="docker exec -it ${cont_name} bash -c 'export ${my_exports}; . ~/.bashrc; ${add_commands} ; ${agent} --model ${model_realname} ${add_options}' "
+fi
+
+if [ "${echo_command}" = "y" ]; then
+  echo "${docker_cmd}"
+else
+  eval ${docker_cmd}
 fi
 

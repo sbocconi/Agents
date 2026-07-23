@@ -19,10 +19,10 @@ mlx_serve_port=1234
 context_lengthK=32
 cache_type="q8_0"
 
-model_identifier="qwen3-coder-next"
+model_identifier="qwen3.6"
 # lms_model="qwen/$model_identifier"
 
-keep_alive_min=10
+keep_alive_min=20
 
 usage() {
   cat <<EOF
@@ -40,7 +40,7 @@ Options for start:
               16   - high precision (f16, default).
               8    - 8-bit quantization (q8_0, cuts memory usage by half, recommended).
               4    - 4-bit quantization (q4_0, cuts memory usage by 75%).
-  -m VALUE   Set model (e.g. qwen3-coder-next. Default: $model_identifier)
+  -m VALUE   Set model (e.g. qwen3.6. Default: $model_identifier)
   -p VALUE   The provider to run (ollama, lms, mlx-serve)
   -t         Start tailing the log in the background immediately after boot
   -h         Show start help
@@ -302,7 +302,6 @@ get_running_provider() {
   elif [ -f "$ollama_pid" ]; then
     running_provider="ollama"
   elif status_service "lms" >/dev/null; then
-    echo "trying lms"
     running_provider="lms"
   else
     :

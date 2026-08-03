@@ -17,7 +17,7 @@ mlx_serve_port=1234
 
 # 1024=1K 262144=256K, 65536=64K, 48128=47K, 32768=32K, 16384=16K, 8192=8K
 context_lengthK=32
-cache_type="q8_0"
+cache_type=8
 
 model_identifier="qwen3.6"
 # lms_model="qwen/$model_identifier"
@@ -37,9 +37,9 @@ Commands:
 Options for start:
   -c VALUE   Set context_length (e.g. 128 for long-context agents (in K). Default: ${context_lengthK}K)
   -k VALUE   Set cache_type (Reduces VRAM constraints at massive contexts)
-              16   - high precision (f16, default).
-              8    - 8-bit quantization (q8_0, cuts memory usage by half, recommended).
-              4    - 4-bit quantization (q4_0, cuts memory usage by 75%).
+              16   - high precision (default).
+              8    - 8-bit quantization (cuts memory usage by half, recommended).
+              4    - 4-bit quantization (cuts memory usage by 75%).
   -m VALUE   Set model (e.g. qwen3.6. Default: $model_identifier)
   -p VALUE   The provider to run (ollama, lms, mlx-serve)
   -t         Start tailing the log in the background immediately after boot
@@ -75,9 +75,9 @@ start_service() {
         ;;
       k)
         case $OPTARG in
-          16) cache_type="f16" ;;
-          8)  cache_type="q8_0" ;;
-          4)  cache_type="q4_0" ;;
+          16) cache_type=16 ;;
+          8)  cache_type=8 ;;
+          4)  cache_type=4 ;;
           *)
             echo "Invalid value for -k: $OPTARG. Choose 16, 8, or 4."
             exit 1
@@ -149,7 +149,9 @@ start_service() {
     # Export variables to environment for Ollama binary consumption
     export OLLAMA_CONTEXT_LENGTH=$context_length
     export OLLAMA_FLASH_ATTENTION=1
-    export OLLAMA_KV_CACHE_TYPE=$cache_type
+    if [ "$cache_type" != "16" ]; then
+      export OLLAMA_KV_CACHE_TYPE="q${cache_type}_0"
+    fi
     export OLLAMA_KEEP_ALIVE="${keep_alive_min}m"
     export OLLAMA_HOST=127.0.0.1:$ollama_port
 
@@ -163,6 +165,7 @@ start_service() {
     mlx-serve --serve \
     --model-dir ~/.lmstudio/models/lmstudio-community/ \
     --ctx-size $context_length \
+    --kv-quant $cache_type \
     --port ${mlx_serve_port} \
     --log-level debug \
     --log-file "$mlx_serve_log" \

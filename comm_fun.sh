@@ -41,6 +41,10 @@ startDocker() {
       exit 1
     fi
 
+    echo "running container: ${cont_name}"
+    echo "with path: ${mac_path}"
+    echo "mapping directories: ${map_dirs}"
+
     ${DOCKER_BIN} run -d \
       --name ${cont_name} \
       -v "$mac_path:$mac_path" \

@@ -92,7 +92,7 @@ fi
 
 for pr in ${PROVIDERS};
 do
-  if ps -e | grep $pr | grep -v grep >/dev/null; then
+  if ps -e | grep -v docker | grep $pr | grep -v grep >/dev/null; then
     provider="$pr"
     break
   fi

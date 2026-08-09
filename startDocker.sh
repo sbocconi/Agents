@@ -101,16 +101,13 @@ done
 if [ "$provider" = "ollama" ]; then
   echo "Using Ollama provider"
   provider_port="11434"
-  provider_name="ollama"
   wrapped="y"
 elif [ "$provider" = "lmstudio" ]; then
   echo "Using LMStudio provider"
   provider_port="1234"
-  provider_name="lmstudio"
 elif [ "$provider" = "mlx-serve" ]; then
   echo "Using mlx-serve provider"
   provider_port="1234"
-  provider_name="mlx-serve"
 else
   echo "Invalid provider: $provider"
   exit 1
@@ -167,16 +164,14 @@ elif [ "${language}" = "go" ]; then
       pack_dir=${mac_path}/$(dirname ${gomod})
       echo "Installing Go dependencies in ${pack_dir}..."
       docker exec ${cont_name} bash -c "cd ${pack_dir} && go mod download" || { echo 'go mod download failed'; exit 1; };
-      if ls ${pack_dir}/*.go 1> /dev/null 2>&1
+      if ls ${pack_dir}/*.go >/dev/null 2>&1
       then
         echo "Go files found in ${pack_dir}, proceeding to build..."
         docker exec ${cont_name} bash -c "cd ${pack_dir} && go build ." || { echo 'go build failed'; exit 1; };
       else
         echo "No Go files found in ${pack_dir}, skipping build."
-        cd -
         continue
       fi
-      cd -
     done
 fi
 
@@ -194,11 +189,12 @@ case $agent in
           IS_SANDBOX=1 \
           CLAUDE_CODE_DISABLE_MOUSE=1 \
           CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1 \
+          CLAUDE_CONFIG_DIR=\"${mac_path}/.claude\" \
           "
           if [ "$wrapped" = "n" ]; then
             my_exports=" ${my_exports} \
               ANTHROPIC_BASE_URL=http://host.docker.internal:${provider_port} \
-              ANTHROPIC_AUTH_TOKEN=\"$provider_name\" \
+              ANTHROPIC_AUTH_TOKEN=\"$provider\" \
               "
             # Claude defaults to injecting hundreds of specialized system prompt instructions and dynamic tags on every single turn,
             # destroying your local model's Key-Value (KV) cache.
@@ -209,10 +205,11 @@ case $agent in
             my_exports=" ${my_exports} \
             OLLAMA_API_BASE_URL=http://host.docker.internal:${provider_port} \
             OLLAMA_HOST=http://host.docker.internal:${provider_port} \
-            ANTHROPIC_AUTH_TOKEN=\"$provider_name\" \
+            ANTHROPIC_AUTH_TOKEN=\"$provider\" \
             "
           fi
           add_commands="claude update"
+          acp_agent="claude-agent-acp"
                     
           add_options="${add_options} --effort xhigh --dangerously-skip-permissions"
           if [ -n "${resume}" ]; then
@@ -253,7 +250,7 @@ case $agent in
 {
   "\$schema": "https://opencode.ai/config.json",
   "provider": {
-    "${provider_name}": {
+    "${provider}": {
       "npm": "@ai-sdk/openai-compatible",
       "name": "${provider} local",
       "options": {
@@ -264,7 +261,7 @@ case $agent in
       }
     }
   },
-  "model": "${provider_name}/${model_realname}",
+  "model": "${provider}/${model_realname}",
   "permission": "allow"
 }
 EOF
@@ -292,9 +289,9 @@ EOF
           exit 1
           my_exports=" ${my_exports} \
             OPENAI_API_BASE=\"http://host.docker.internal:${provider_port}\" \
-            OPENAI_API_KEY=\"${provider_name}\" \
+            OPENAI_API_KEY=\"${provider}\" \
             "
-            add_options="--profile ${provider_name}_id $add_options"
+            add_options="--profile ${provider}_id $add_options"
         else
           if [ "$provider" = "lmstudio" ]; then
             echo "codex does not play well with ollama talking to lmstudio, use wrapped and ollama"
@@ -303,7 +300,7 @@ EOF
           my_exports=" ${my_exports} \
             OLLAMA_API_BASE_URL=http://host.docker.internal:${provider_port} \
             OLLAMA_HOST=http://host.docker.internal:${provider_port} \
-            OPENAI_API_KEY=\"${provider_name}\" \
+            OPENAI_API_KEY=\"${provider}\" \
             "
         fi
 # Codex is transitioning to a new way to have profiles
@@ -311,12 +308,12 @@ EOF
 # https://developers.openai.com/codex/config-advanced#profiles
 
 #         cat << EOF > "${conf_dir}"/config.toml
-# oss_provider = "${provider_name}"
+# oss_provider = "${provider}"
 # model = "${model_realname}"
 # model_reasoning_effort = "high"
-# model_provider = "${provider_name}_id"
-# [model_providers.${provider_name}_id]
-# name = "${provider_name}"
+# model_provider = "${provider}_id"
+# [model_providers.${provider}_id]
+# name = "${provider}"
 # base_url = "http://host.docker.internal:${provider_port}/v1"
 # requires_openai_auth = false
 # api_key = "${provider}"
@@ -354,7 +351,7 @@ EOF
             OLLAMA_HOST=http://host.docker.internal:${provider_port} \
             "
         fi
-
+        
         cat << EOF > "${conf_dir}"/models.json 
 {
   "providers": {
@@ -369,6 +366,7 @@ EOF
   }
 }
 EOF
+
         add_commands="pi update && pi install git:github.com/DietrichGebert/ponytail && pi update --extensions"
         add_options=""
         if [ -n "${resume}" ]; then
@@ -385,14 +383,32 @@ my_exports=$(echo "${my_exports}" | tr -s ' ')
 echo "commands to run in container: ${add_commands}"
 echo "options to run in container: ${add_options}"
 echo "exports to run in container: ${my_exports}"
+
+agent_script="${mac_path}/.${agent}/run_${agent}.sh"
+
+echo -e "#!/bin/bash\n" > ${agent_script}
+echo -e "source ~/.bashrc\n" >> ${agent_script}
+echo -e "export ${my_exports}\n" >> ${agent_script}
+echo -e "${add_commands}\n" >> ${agent_script}
+
 # exit 0
 # Launch the Agent
 echo "Container is UP. Launching ${agent} Agent with provider ${provider}"
 if [ "${wrapped}" = "y" ]; then
-  docker_cmd="docker exec -it ${cont_name} bash -c 'export ${my_exports}; . ~/.bashrc; ${add_commands} ; ollama launch ${agent} --model ${model_realname} -- ${add_options}' "
+  echo -e "ollama launch ${agent} --model ${model_realname} -- ${add_options}" >> ${agent_script}
 else
-  docker_cmd="docker exec -it ${cont_name} bash -c 'export ${my_exports}; . ~/.bashrc; ${add_commands} ; ${agent} --model ${model_realname} ${add_options}' "
+  echo -e "if [ \"\$1\" == \"local\" ];then" >> ${agent_script}
+	echo -e "\tANTHROPIC_BASE_URL=http://localhost:1234" >> ${agent_script}
+  echo -e "fi" >> ${agent_script}
+  echo -e "if [ \"\$2\" == \"acp\" ];then" >> ${agent_script}
+  echo -e "\t${acp_agent} --model ${model_realname} ${add_options}" >> ${agent_script}
+  echo -e "else" >> ${agent_script}
+  echo -e "\t${agent} --model ${model_realname} ${add_options}" >> ${agent_script}
+  echo -e "fi" >> ${agent_script}
 fi
+
+docker exec ${cont_name} chmod +x $agent_script
+docker_cmd="docker exec -it ${cont_name} bash -c ${agent_script}"
 
 if [ "${echo_command}" = "y" ]; then
   echo "${docker_cmd}"

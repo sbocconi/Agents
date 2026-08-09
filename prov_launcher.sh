@@ -22,7 +22,7 @@ cache_type=8
 model_identifier="qwen3.6"
 # lms_model="qwen/$model_identifier"
 
-keep_alive_min=20
+keep_alive_min=30
 
 usage() {
   cat <<EOF
@@ -57,8 +57,6 @@ start_service() {
 
   local existing_provider=""
   
-  existing_provider=$(get_running_provider)
-
   while existing_provider=$(get_running_provider) && [ "$existing_provider" != "" ]; do
     stop_service $existing_provider
   done
@@ -299,6 +297,12 @@ is_pid_running() {
 }
 
 get_running_provider() {
+    # running=$(ps -e | grep 'ollama serve' | grep -v grep | cut -f1 -d' ')
+    # if [ $running != "" ]; then
+    #   echo "Killing running Ollama"
+    #   kill -9 $running
+    # fi
+
   local running_provider=""
   if [ -f "$mlx_serve_pid" ]; then
     running_provider="mlx_serve"

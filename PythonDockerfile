@@ -17,6 +17,8 @@ RUN apt install -y nodejs
 # remove apt lists to reduce image size
 RUN rm -rf /var/lib/apt/lists/*
 
+# Install Ollama
+RUN curl -fsSL https://ollama.com/install.sh | sh
 
 # Install the Agent platforms
 RUN curl -fsSL https://claude.ai/install.sh | bash
@@ -26,9 +28,6 @@ RUN ln -s /root/.opencode/bin/opencode /usr/local/bin/
 RUN npm install -g @openai/codex
 RUN npm install -g @github/copilot
 RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent
-
-# Install Ollama
-RUN curl -fsSL https://ollama.com/install.sh | sh
 
 # Install uv
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh

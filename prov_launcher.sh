@@ -1,8 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
-lms_cmd='"/Applications/LM Studio.app/Contents/Resources/app/.webpack/lms"'
-lms_port=1234
+lmstudio_cmd='"/Applications/LM Studio.app/Contents/Resources/app/.webpack/lms"'
+lmstudio_port=1234
 
 ollama_port=11434
 ollama_dir=~/.ollama
@@ -19,8 +19,8 @@ mlx_serve_port=1234
 context_lengthK=32
 cache_type=8
 
-model_identifier="qwen3.6"
-# lms_model="qwen/$model_identifier"
+model_identifier="qwen3.8"
+# lmstudio_model="qwen/$model_identifier"
 
 keep_alive_min=30
 
@@ -41,7 +41,7 @@ Options for start:
               8    - 8-bit quantization (cuts memory usage by half, recommended).
               4    - 4-bit quantization (cuts memory usage by 75%).
   -m VALUE   Set model (e.g. qwen3.6. Default: $model_identifier)
-  -p VALUE   The provider to run (ollama, lms, mlx-serve)
+  -p VALUE   The provider to run (ollama, lmstudio, mlx-serve)
   -t         Start tailing the log in the background immediately after boot
   -h         Show start help
 EOF
@@ -94,9 +94,9 @@ start_service() {
             provider="ollama"
             port=$ollama_port
             ;;
-          lms)
-            provider="lms"
-            port=$lms_port
+          lmstudio)
+            provider="lmstudio"
+            port=$lmstudio_port
             ;;
           mlx-serve)
             provider="mlx_serve"
@@ -124,7 +124,7 @@ start_service() {
     exit 1
   fi
 
-  # Export variables to environment for lms binary consumption
+  # Export variables to environment for lmstudio binary consumption
 
   echo "====================================================="
   echo "Launching ${provider} Server with variables:"
@@ -137,10 +137,10 @@ start_service() {
   
   local context_length=$(($context_lengthK * 1024))
 
-  if [ "$provider" = "lms" ]; then
-    eval $lms_cmd server start --bind 0.0.0.0 --port $lms_port
-    lms_loaded_model | grep "$model_identifier" >/dev/null || \
-    eval $lms_cmd load ${model_identifier} --ttl $(($keep_alive_min * 60 )) --gpu 1 --context-length $context_length --identifier "$model_identifier"
+  if [ "$provider" = "lmstudio" ]; then
+    eval $lmstudio_cmd server start --bind 0.0.0.0 --port $lmstudio_port
+    lmstudio_loaded_model | grep "$model_identifier" >/dev/null || \
+    eval $lmstudio_cmd load ${model_identifier} --ttl $(($keep_alive_min * 60 )) --gpu 1 --context-length $context_length --identifier "$model_identifier"
     echo "$model_identifier loaded"
     # Wait for server to start
   elif [ "$provider" = "ollama" ]; then
@@ -159,7 +159,7 @@ start_service() {
     echo "Ollama running in background (PID=$pid)."  
   elif [ "$provider" = "mlx_serve" ]; then
     # --skip-mem-preflight \ 
-    # --model ~/.lmstudio/models/lmstudio-community/Qwen3-Coder-Next-MLX-4bit/ \
+    # --model ~/.lmstudio/models/lmstudio-community/Qwen3.8-27B-MLX-4bit/ \
     mlx-serve --serve \
     --model-dir ~/.lmstudio/models/lmstudio-community/ \
     --ctx-size $context_length \
@@ -185,10 +185,10 @@ stop_service() {
 
   [ "$provider" = "" ] && { echo "No running provider"; return 1; }
 
-  if [ "$provider" = "lms" ]; then
-    lms_loaded_model | grep "$model_identifier" >/dev/null && eval $lms_cmd unload "$model_identifier"
+  if [ "$provider" = "lmstudio" ]; then
+    lmstudio_loaded_model | grep "$model_identifier" >/dev/null && eval $lmstudio_cmd unload "$model_identifier"
     echo "$(status_service)"
-    status_service >/dev/null && eval $lms_cmd server stop
+    status_service >/dev/null && eval $lmstudio_cmd server stop
   elif [ "$provider" = "ollama" ]; then
     if [ ! -f "$ollama_pid" ]; then
       echo "No PID file found; ollama does not appear to be running."
@@ -244,10 +244,10 @@ status_service() {
   set -u
   [ "$provider" = "" ] && { echo "No running provider"; return 1; }
 
-  if [ "$provider" = "lms" ]; then
-    res=$(eval $lms_cmd server status 2>&1)
+  if [ "$provider" = "lmstudio" ]; then
+    res=$(eval $lmstudio_cmd server status 2>&1)
     echo "$res"
-    lms_loaded_model
+    lmstudio_loaded_model
 
     if [[ "$res" == *"is running"* ]]; then
       return 0
@@ -286,8 +286,8 @@ status_service() {
   fi
 }
 
-lms_loaded_model() {
-  local res=$(eval $lms_cmd ps 2>&1)
+lmstudio_loaded_model() {
+  local res=$(eval $lmstudio_cmd ps 2>&1)
   echo "$res"
 }
 
@@ -308,8 +308,8 @@ get_running_provider() {
     running_provider="mlx_serve"
   elif [ -f "$ollama_pid" ]; then
     running_provider="ollama"
-  elif status_service "lms" >/dev/null; then
-    running_provider="lms"
+  elif status_service "lmstudio" >/dev/null; then
+    running_provider="lmstudio"
   else
     :
   fi
@@ -332,8 +332,8 @@ tail_service_background() {
   local provider=$(get_running_provider)
   [ "$provider" = "" ] && { echo "No running provider"; return 1; }
   
-  if [ "$provider" = "lms" ]; then
-    eval $lms_cmd log stream &
+  if [ "$provider" = "lmstudio" ]; then
+    eval $lmstudio_cmd log stream &
   elif [ "$provider" = "ollama" ]; then
     if [ ! -f "$ollama_log" ]; then
       echo "Log file does not exist yet: $ollama_log"

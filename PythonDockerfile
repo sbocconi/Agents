@@ -17,8 +17,8 @@ RUN apt install -y nodejs
 # remove apt lists to reduce image size
 RUN rm -rf /var/lib/apt/lists/*
 
-# Install Ollama
-RUN curl -fsSL https://ollama.com/install.sh | sh
+# Install Ollama but remove CUDA
+RUN curl -fsSL https://ollama.com/install.sh | sh && rm -rf /usr/local/lib/ollama/cuda_*
 
 # Install the Agent platforms
 RUN curl -fsSL https://claude.ai/install.sh | bash

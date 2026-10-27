@@ -1,0 +1,38 @@
+FROM arm64v8/node:lts-slim
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    git curl zstd procps bash
+    
+# Install Node.js 22.x and npm
+# RUN apt remove -y nodejs npm 
+# RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+# RUN apt install -y nodejs
+
+# remove apt lists to reduce image size
+RUN rm -rf /var/lib/apt/lists/*
+
+# Install Ollama but remove CUDA
+RUN curl -fsSL https://ollama.com/install.sh | sh && rm -rf /usr/local/lib/ollama/cuda_*
+
+
+# Install the Agent platforms
+RUN curl -fsSL https://claude.ai/install.sh | bash
+# RUN ln -s /root/.local/bin/claude /usr/local/bin/
+RUN curl -fsSL https://opencode.ai/install | bash
+RUN ln -s /root/.opencode/bin/opencode /usr/local/bin/
+RUN npm install -g @openai/codex
+RUN npm install -g @github/copilot
+RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+
+
+# For Claude
+RUN echo '# claude' >> /root/.bashrc
+RUN echo 'export PATH="/root/.local/bin:$PATH"' >> /root/.bashrc
+
+# Workspace directory is set in docker run
+
+# Keep the container running
+CMD ["sleep", "infinity"]

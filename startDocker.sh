@@ -19,7 +19,7 @@ echo "Current directory on Mac: ${mac_path}"
 parentbasename=$(basename $(dirname $mac_path)| tr '[:upper:]' '[:lower:]')
 currentbasename=$(basename $mac_path | tr '[:upper:]' '[:lower:]')
 cont_name="agent-sandbox-${parentbasename}_${currentbasename}"
-model="qwen3-coder-next"
+model="qwen3.8"
 
 # Avoid for local agents: copilot, codex, or kimi are primarily heavily tuned toward cloud endpoints 
 # and have worse translation layers when forced to run locally.
@@ -34,8 +34,9 @@ provider=""
 wrapped="n"
 llm_context=0
 echo_command="n"
+subscribed="n"
 
-while getopts "a:c:d:ehl:m:r:w" opt; do
+while getopts "a:c:d:ehl:m:r:sw" opt; do
     case $opt in
       a)
         agent="${OPTARG}"
@@ -60,6 +61,7 @@ while getopts "a:c:d:ehl:m:r:w" opt; do
         echo "  -l LANGUAGE  Specify the programming language"
         echo "  -m MODEL     Specify the model to use"
         echo "  -r RESUME   Specify a resume checkpoint for the agent"
+        echo "  -s          Launch in subscribed mode"
         echo "  -w          Launch agent via ollama"
         exit 0
         ;;
@@ -75,6 +77,9 @@ while getopts "a:c:d:ehl:m:r:w" opt; do
       r)
         resume="${OPTARG}"
         ;;
+      s)
+        subscribed="y"
+        ;;
       w)
         wrapped="y"
         ;;
@@ -85,35 +90,48 @@ while getopts "a:c:d:ehl:m:r:w" opt; do
     esac
 done
 
-if [ ${llm_context} = 0 ]; then
-  echo "Please specify a context length"
+if [ "${subscribed}" = "y" -a \( "$provider" != "" -o "$llm_context" -ne 0 -o "$wrapped" = "y" \) ]; then
+  echo "Option subscribed is not compatible with options for provider, llm_context and wrapped"
   exit 1
 fi
 
-for pr in ${PROVIDERS};
-do
-  if ps -e | grep -v docker | grep $pr | grep -v grep >/dev/null; then
-    provider="$pr"
-    break
-  fi
-done  
-
-if [ "$provider" = "ollama" ]; then
-  echo "Using Ollama provider"
-  provider_port="11434"
-  wrapped="y"
-elif [ "$provider" = "lmstudio" ]; then
-  echo "Using LMStudio provider"
-  provider_port="1234"
-elif [ "$provider" = "mlx-serve" ]; then
-  echo "Using mlx-serve provider"
-  provider_port="1234"
+if [ "${subscribed}" = "y" ]; then
+  :
 else
-  echo "Invalid provider: $provider"
-  exit 1
-fi
+  if [ "${llm_context}" = 0 ]; then
+    echo "Please specify a context length"
+    exit 1
+  fi
 
-model_realname=$(curl http://localhost:${provider_port}/v1/models 2>/dev/null | jq -r '.data[].id' | grep -i --max-count 1 ${model})
+  for pr in ${PROVIDERS};
+  do
+    if ps -e | grep -v docker | grep $pr | grep -v grep >/dev/null; then
+      provider="$pr"
+      break
+    fi
+  done  
+
+  if [ "$provider" = "ollama" ]; then
+    echo "Using Ollama provider"
+    provider_port="11434"
+    wrapped="y"
+  elif [ "$provider" = "lmstudio" ]; then
+    echo "Using LMStudio provider"
+    provider_port="1234"
+  elif [ "$provider" = "mlx-serve" ]; then
+    echo "Using mlx-serve provider"
+    provider_port="1234"
+  else
+    echo "Invalid provider: $provider"
+    exit 1
+  fi
+
+  model_realname=$(curl http://localhost:${provider_port}/v1/models 2>/dev/null | jq -r '.data[].id' | grep -i --max-count 1 ${model})
+  if [ -z "$model_realname" ]; then
+    echo "Could not retrieve the model name, is the provider running?"
+    exit 1
+  fi
+fi
 
 if [ "${language}" = "python" ]; then
     dockerfile="${SCRIPT_DIR}/PythonDockerfile"
@@ -121,10 +139,14 @@ if [ "${language}" = "python" ]; then
 elif [ "${language}" = "go" ]; then
     dockerfile="${SCRIPT_DIR}/GoDockerfile"
     cont_name="${cont_name}-go"
+elif [ "${language}" = "node" ]; then
+    dockerfile="${SCRIPT_DIR}/NodeDockerfile"
+    cont_name="${cont_name}-node"
 else
     echo "No language specified or unsupported language"
     exit 1
 fi
+
 
 startDocker ${cont_name} ${agent} ${mac_path} "${map_dirs}" ${dockerfile}
 
@@ -163,11 +185,11 @@ elif [ "${language}" = "go" ]; then
     do
       pack_dir=${mac_path}/$(dirname ${gomod})
       echo "Installing Go dependencies in ${pack_dir}..."
-      docker exec ${cont_name} bash -c "cd ${pack_dir} && go mod download" || { echo 'go mod download failed'; exit 1; };
+      docker exec ${cont_name} bash -c "cd ${pack_dir} && go mod download" || { echo 'go mod download failed'; };
       if ls ${pack_dir}/*.go >/dev/null 2>&1
       then
         echo "Go files found in ${pack_dir}, proceeding to build..."
-        docker exec ${cont_name} bash -c "cd ${pack_dir} && go build ." || { echo 'go build failed'; exit 1; };
+        docker exec ${cont_name} bash -c "cd ${pack_dir} && go build ." || { echo 'go build failed'; };
       else
         echo "No Go files found in ${pack_dir}, skipping build."
         continue
@@ -183,30 +205,36 @@ case $agent in
         # https://code.claude.com/docs/en/permission-modes#skip-all-checks-with-bypasspermissions-mode
         # https://github.com/anthropics/claude-code/issues/3490
         # CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 \
-        my_exports=" \
-          ANTHROPIC_TIMEOUT_MS=600000 \
-          CLAUDE_CODE_AUTO_COMPACT_WINDOW=${llm_context} \
-          IS_SANDBOX=1 \
-          CLAUDE_CODE_DISABLE_MOUSE=1 \
-          CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1 \
-          CLAUDE_CONFIG_DIR=\"${mac_path}/.claude\" \
-          "
-          if [ "$wrapped" = "n" ]; then
-            my_exports=" ${my_exports} \
-              ANTHROPIC_BASE_URL=http://host.docker.internal:${provider_port} \
+        
+        mkdir -p "${mac_path}/.claude"
+        my_exports="CLAUDE_CONFIG_DIR=\"${mac_path}/.claude\" \
+                    IS_SANDBOX=1 \
+                    CLAUDE_CODE_DISABLE_MOUSE=1 \
+                    CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1 \
+                    "
+
+        if [ "$subscribed" != "y" ]; then
+          my_exports=" $my_exports \
+            ANTHROPIC_TIMEOUT_MS=600000 \
+            CLAUDE_CODE_AUTO_COMPACT_WINDOW=${llm_context} \
+            "
+            if [ "$wrapped" = "n" ]; then
+              my_exports=" ${my_exports} \
+                ANTHROPIC_BASE_URL=http://host.docker.internal:${provider_port} \
+                ANTHROPIC_AUTH_TOKEN=\"$provider\" \
+                "
+              # Claude defaults to injecting hundreds of specialized system prompt instructions and dynamic tags on every single turn,
+              # destroying your local model's Key-Value (KV) cache.
+              # Adding the --bare flag strip-mines unnecessary telemetry and forces a leaner, faster context loop
+              # https://medium.com/@vito.rallo/running-claude-code-with-local-llms-all-lies-until-now-3e9a0084dfe1
+              add_options="--bare --strict-mcp-config" # and --tools
+            else
+              my_exports=" ${my_exports} \
+              OLLAMA_API_BASE_URL=http://host.docker.internal:${provider_port} \
+              OLLAMA_HOST=http://host.docker.internal:${provider_port} \
               ANTHROPIC_AUTH_TOKEN=\"$provider\" \
               "
-            # Claude defaults to injecting hundreds of specialized system prompt instructions and dynamic tags on every single turn,
-            # destroying your local model's Key-Value (KV) cache.
-            # Adding the --bare flag strip-mines unnecessary telemetry and forces a leaner, faster context loop
-            # https://medium.com/@vito.rallo/running-claude-code-with-local-llms-all-lies-until-now-3e9a0084dfe1
-            add_options="--bare --strict-mcp-config" # and --tools
-          else
-            my_exports=" ${my_exports} \
-            OLLAMA_API_BASE_URL=http://host.docker.internal:${provider_port} \
-            OLLAMA_HOST=http://host.docker.internal:${provider_port} \
-            ANTHROPIC_AUTH_TOKEN=\"$provider\" \
-            "
+            fi
           fi
           add_commands="claude update"
           acp_agent="claude-agent-acp"
@@ -397,14 +425,21 @@ echo "Container is UP. Launching ${agent} Agent with provider ${provider}"
 if [ "${wrapped}" = "y" ]; then
   echo -e "ollama launch ${agent} --model ${model_realname} -- ${add_options}" >> ${agent_script}
 else
-  echo -e "if [ \"\$1\" == \"local\" ];then" >> ${agent_script}
-	echo -e "\tANTHROPIC_BASE_URL=http://localhost:1234" >> ${agent_script}
-  echo -e "fi" >> ${agent_script}
-  echo -e "if [ \"\$2\" == \"acp\" ];then" >> ${agent_script}
-  echo -e "\t${acp_agent} --model ${model_realname} ${add_options}" >> ${agent_script}
-  echo -e "else" >> ${agent_script}
-  echo -e "\t${agent} --model ${model_realname} ${add_options}" >> ${agent_script}
-  echo -e "fi" >> ${agent_script}
+  if [ "$subscribed" = "y" ]; then
+    echo -e "${agent} ${add_options}" >> ${agent_script}
+  elif [ "${agent}" = "claude" ]; then
+    echo -e "if [ \"\$1\" == \"local\" ];then" >> ${agent_script}
+    echo -e "\tANTHROPIC_BASE_URL=http://localhost:${provider_port}" >> ${agent_script}
+    echo -e "\tunset CLAUDE_CODE_DISABLE_MOUSE CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN" >> ${agent_script}
+    echo -e "fi" >> ${agent_script}
+    echo -e "if [ \"\$2\" == \"acp\" ];then" >> ${agent_script}
+    echo -e "\t${acp_agent} --model ${model_realname} ${add_options}" >> ${agent_script}
+    echo -e "else" >> ${agent_script}
+    echo -e "\t${agent} --model ${model_realname} ${add_options}" >> ${agent_script}
+    echo -e "fi" >> ${agent_script}
+  else
+    echo -e "${agent} --model ${model_realname} ${add_options}" >> ${agent_script}
+  fi
 fi
 
 docker exec ${cont_name} chmod +x $agent_script

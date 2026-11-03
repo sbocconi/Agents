@@ -35,8 +35,9 @@ wrapped="n"
 llm_context=0
 echo_command="n"
 subscribed="n"
+keep_running="n"
 
-while getopts "a:c:d:ehl:m:r:sw" opt; do
+while getopts "a:c:d:ehkl:m:r:sw" opt; do
     case $opt in
       a)
         agent="${OPTARG}"
@@ -50,6 +51,9 @@ while getopts "a:c:d:ehl:m:r:sw" opt; do
       e)
         echo_command="y"
         ;;
+      k)
+        keep_running="y"
+        ;;
       h)
         echo "Usage: $0 [OPTIONS]"
         echo "Options:"
@@ -58,6 +62,7 @@ while getopts "a:c:d:ehl:m:r:sw" opt; do
         echo "  -d DIR      Specify a directory to map into the container"
         echo "  -e          Echo the command that you would run instead of running it"
         echo "  -h          Display this help message"
+        echo "  -k          Keep the container running after the agent exits (default: stop it if no other session uses it)"
         echo "  -l LANGUAGE  Specify the programming language"
         echo "  -m MODEL     Specify the model to use"
         echo "  -r RESUME   Specify a resume checkpoint for the agent"
@@ -449,5 +454,8 @@ if [ "${echo_command}" = "y" ]; then
   echo "${docker_cmd}"
 else
   eval ${docker_cmd}
+  if [ "${keep_running}" = "n" ]; then
+    stopIdle ${cont_name}
+  fi
 fi
 

@@ -1,4 +1,31 @@
 
+# Make sure the shared image for a Dockerfile exists and print its name.
+# One image per Dockerfile (so per language), shared by all project containers: agent-sandbox-<language>:<hash>,
+# where the hash is taken from the Dockerfile, so editing it gives a new image and the next new container uses it.
+sandboxImage() {
+  DOCKER_BIN=$(command -v podman || command -v docker)
+  local Dockerfile=$(readlink -f ${1})
+  local lang=$(basename ${Dockerfile} Dockerfile | tr '[:upper:]' '[:lower:]')
+  local image="agent-sandbox-${lang}:$(shasum -a 256 ${Dockerfile} | cut -c1-12)"
+  local context old
+
+  if ! ${DOCKER_BIN} image inspect ${image} > /dev/null 2>&1; then
+    echo "Building shared image ${image}..." >&2
+    # Empty build context: the Dockerfile copies nothing, so there is no need to send the project directory
+    context=$(mktemp -d)
+    ${DOCKER_BIN} build -t ${image} --file ${Dockerfile} ${context} >&2 || { rm -rf ${context}; echo "Docker build failed." >&2; exit 1; }
+    rm -rf ${context}
+    # Builds are rare now (only when the Dockerfile changes), so the build cache is not worth keeping
+    echo "Pruning unused Docker build cache..." >&2
+    ${DOCKER_BIN} builder prune -f > /dev/null || echo "Failed to prune Docker build cache" >&2
+    # Older versions of this image that no container uses anymore (removal fails, harmlessly, for those still in use)
+    for old in $(${DOCKER_BIN} images agent-sandbox-${lang} --format '{{.Repository}}:{{.Tag}}' | grep -vxF ${image}); do
+      ${DOCKER_BIN} image rm ${old} > /dev/null 2>&1 && echo "Removed unused old image ${old}" >&2
+    done
+  fi
+  echo ${image}
+}
+
 startDocker() {
   DOCKER_BIN=$(command -v podman || command -v docker)
   cont_name=${1}
@@ -7,17 +34,23 @@ startDocker() {
   map_dirs=${4}
   Dockerfile=${5}
 
-  if [ "$(${DOCKER_BIN} ps -q -f name=${cont_name})" ]; then
+  image=$(sandboxImage ${Dockerfile}) || exit 1
+
+  if [ "$(${DOCKER_BIN} ps -aq -f name=^${cont_name}$)" ]; then
+    used=$(${DOCKER_BIN} inspect -f '{{.Config.Image}}' ${cont_name})
+    if [ "${used}" != "${image}" ]; then
+      echo "Note: container '${cont_name}' uses ${used}, not the current ${image}."
+      echo "      Its own changes (installed packages, files outside ${mac_path}) are lost when it is recreated;"
+      echo "      to move it to the current image: ${DOCKER_BIN} rm -f ${cont_name}"
+    fi
+  fi
+
+  if [ "$(${DOCKER_BIN} ps -q -f name=^${cont_name}$)" ]; then
     echo "Container '${cont_name}' is already running."
-  elif [ "$(${DOCKER_BIN} ps -aq -f name=${cont_name})" ]; then
+  elif [ "$(${DOCKER_BIN} ps -aq -f name=^${cont_name}$)" ]; then
     echo "Container '${cont_name}' exists but is not running. Starting it..."
     ${DOCKER_BIN} start ${cont_name}
   else
-
-    ${DOCKER_BIN} build -t ${cont_name}-image --file $(readlink -f ${Dockerfile}) . || { echo "Docker build failed."; exit 1; }
-
-    # Remove old container if it exists
-    ${DOCKER_BIN} rm -f ${cont_name} 2>/dev/null || true
 
     # Run the container in the background (-d)
     # We mount the current directory to the same path in the container, to be able to resume the session also outside of the container.
@@ -26,7 +59,7 @@ startDocker() {
     # but this has not been tested yet for copilot.
     echo "Starting container..."
     if [ "${agent}" == "claude" -o "${agent}" == "opencode" ]; then
-      map_dirs="${map_dirs} -v $HOME/.claude:/root/.claude -v $HOME/.claude.json:/root/.claude.json"
+      # map_dirs="${map_dirs} -v $HOME/.claude:/root/.claude -v $HOME/.claude.json:/root/.claude.json"
       map_dirs="${map_dirs} -v $HOME/.local/share/opencode:/root/.local/share/opencode"
     elif [ "${agent}" == "copilot" ]; then
       map_dirs="${map_dirs} -v $HOME/.copilot:/root/.copilot"
@@ -41,7 +74,12 @@ startDocker() {
       exit 1
     fi
 
+    # Package caches shared by all containers (Docker volumes), so each package is downloaded and stored once
+    # instead of once per container: uv, pip and the Go build cache (~/.cache), npm, Go modules
+    cache_dirs="-v agent-sandbox-cache:/root/.cache -v agent-sandbox-npm:/root/.npm -v agent-sandbox-gomod:/go/pkg/mod"
+
     echo "running container: ${cont_name}"
+    echo "from image: ${image}"
     echo "with path: ${mac_path}"
     echo "mapping directories: ${map_dirs}"
 
@@ -49,8 +87,9 @@ startDocker() {
       --name ${cont_name} \
       -v "$mac_path:$mac_path" \
       ${map_dirs} \
+      ${cache_dirs} \
       -w "$mac_path" \
-      ${cont_name}-image || { echo "Failed to start container"; exit 1; }
+      ${image} || { echo "Failed to start container"; exit 1; }
 
     # Wait for readiness
     echo "Waiting for container to be ready..."
@@ -66,6 +105,15 @@ startDocker() {
         fi
     done
   fi
-  echo "Pruning unused Docker cache..."
-  ${DOCKER_BIN} builder prune -f || { echo "Failed to prune Docker cache"; exit 1; }
+}
+
+# Stop the container after an agent session, unless another session still runs in it
+# (only `sleep infinity`, the container's main process, is left). Its files are kept: the next start reuses it.
+stopIdle() {
+  DOCKER_BIN=$(command -v podman || command -v docker)
+  cont_name=${1}
+  if [ "$(${DOCKER_BIN} top ${cont_name} -o pid 2>/dev/null | tail -n +2 | wc -l)" -le 1 ]; then
+    echo "Stopping container '${cont_name}' (restarted automatically next time)..."
+    ${DOCKER_BIN} stop -t 2 ${cont_name} > /dev/null
+  fi
 }

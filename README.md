@@ -80,6 +80,9 @@ Notes:
 	- `$HOME/.claude.json` -> `/root/.claude.json`
 	- `$HOME/.local/share/opencode` -> `/root/.local/share/opencode`
 - Containers are named per project and language, using `agent-sandbox-<parent_dir>_<current_dir>-<language>` (for example `agent-sandbox-myorg_myrepo-python`). This gives you dedicated containers for each repo/language combination; if a matching container already exists, it is reused.
+- All containers of a language share one image, `agent-sandbox-<language>:<hash>`, where the hash comes from the Dockerfile. It is built only the first time (or after the Dockerfile changes), so ten projects cost one image plus each container's own changes, instead of ten full images. After a Dockerfile change, existing containers keep their old image until you remove them (`docker rm -f <container>`); the script tells you which ones, and deletes old images once no container uses them.
+- Package caches are shared by all containers through Docker volumes (`agent-sandbox-cache` for `~/.cache` (uv, pip, Go builds), `agent-sandbox-npm`, `agent-sandbox-gomod`), so packages are downloaded and stored once.
+- When the agent exits, the container is stopped unless another session still runs in it (`-k` keeps it running). It keeps its files and starts again automatically next time.
 - If you use `claude`, the script currently applies `--bare`, `--strict-mcp-config`, and `--dangerously-skip-permissions`.
 - `copilot` and `codex` are installed in images but are not enabled in this launcher flow yet.
 

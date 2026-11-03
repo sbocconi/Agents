@@ -38,10 +38,16 @@ startDocker() {
 
   if [ "$(${DOCKER_BIN} ps -aq -f name=^${cont_name}$)" ]; then
     used=$(${DOCKER_BIN} inspect -f '{{.Config.Image}}' ${cont_name})
+    # Everything that matters is in the mounted directories, so a container on an older image is recreated,
+    # unless an agent session is still running in it (only `sleep infinity` left = no session)
     if [ "${used}" != "${image}" ]; then
-      echo "Note: container '${cont_name}' uses ${used}, not the current ${image}."
-      echo "      Its own changes (installed packages, files outside ${mac_path}) are lost when it is recreated;"
-      echo "      to move it to the current image: ${DOCKER_BIN} rm -f ${cont_name}"
+      if [ "$(${DOCKER_BIN} top ${cont_name} -o pid 2>/dev/null | tail -n +2 | wc -l)" -gt 1 ]; then
+        echo "Note: container '${cont_name}' uses the older ${used}, but a session is running in it; it moves to ${image} next time."
+      else
+        echo "Container '${cont_name}' uses the older ${used}: recreating it from ${image}..."
+        ${DOCKER_BIN} rm -f ${cont_name} > /dev/null
+        ${DOCKER_BIN} image rm ${used} > /dev/null 2>&1 && echo "Removed unused old image ${used}"
+      fi
     fi
   fi
 

@@ -44,7 +44,7 @@ The launcher script expects at least:
 - a language (`python`, `go` or `node`)
 - a context length (`-c`, in K), unless the agent runs on its subscription (`-s`)
 
-The provider (`ollama`, `lmstudio` or `mlx-serve`) is detected from the running processes, the first one found in that order of preference: mlx-serve, LM Studio, Ollama. Use `-p` to choose one when several are running.
+The provider (`ollama`, `lmstudio` or `mlx-serve`) is detected by asking which server answers on the ports they normally use (1234 for LM Studio and for mlx-serve started by `prov_launcher.sh`, 11234 for mlx-serve's own default, 11434 for Ollama). The script asks for `-p` only when several answer, or when it cannot tell which server is listening.
 
 General command:
 

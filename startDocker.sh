@@ -26,7 +26,6 @@ model="qwen3.8"
 # Installed on the docker image:  claude.ai, opencode.ai, codex, copilot, pi      
 agent="claude"
 
-PROVIDERS="mlx-serve lmstudio ollama"
 resume=""
 map_dirs=""
 language=""
@@ -65,7 +64,7 @@ while getopts "a:c:d:ehkl:m:p:r:sw" opt; do
         echo "  -k          Keep the container running after the agent exits (default: stop it if no other session uses it)"
         echo "  -l LANGUAGE  Specify the programming language"
         echo "  -m MODEL     Specify the model to use"
-        echo "  -p PROVIDER  ollama, lmstudio or mlx-serve (default: the first of these found running)"
+        echo "  -p PROVIDER  ollama, lmstudio or mlx-serve (default: the one found running; needed only when several are)"
         echo "  -r RESUME   Specify a resume checkpoint for the agent"
         echo "  -s          Launch in subscribed mode"
         echo "  -w          Launch agent via ollama"
@@ -109,27 +108,48 @@ else
     exit 1
   fi
 
-  # Without -p, use the first provider found running
-  if [ -z "$provider" ]; then
-    for pr in ${PROVIDERS};
-    do
-      if ps -e | grep -v docker | grep $pr | grep -v grep >/dev/null; then
-        provider="$pr"
-        break
-      fi
-    done
+  # Find the providers by asking the ports they normally use (LM Studio 1234, mlx-serve 1234 via prov_launcher.sh
+  # or its own default 11234, Ollama 11434) which server answers there
+  found=""
+  for port in 1234 11234 11434; do
+    models=$(curl -s --max-time 1 http://localhost:${port}/v1/models) || continue
+    if curl -s --max-time 1 http://localhost:${port}/ | grep -q "Ollama is running"; then
+      found="${found} ollama:${port}"
+    elif echo "${models}" | jq -e 'has("machine")' > /dev/null 2>&1; then    # mlx-serve adds its machine info
+      found="${found} mlx-serve:${port}"
+    elif [ "$(curl -s --max-time 1 -o /dev/null -w '%{http_code}' http://localhost:${port}/api/v0/models)" = "200" ]; then
+      found="${found} lmstudio:${port}"                                     # LM Studio's own REST API
+    else
+      found="${found} unknown:${port}"
+    fi
+  done
+  found=$(echo ${found})
+
+  if [ -n "$provider" ]; then
+    provider_port=$(echo " ${found} " | grep -oE " ${provider}:[0-9]+ " | head -1 | cut -d: -f2 | tr -d ' ')
+    if [ -z "$provider_port" ]; then
+      echo "Provider ${provider} does not answer on its usual ports (found: ${found:-nothing}). Is it running?"
+      exit 1
+    fi
+  elif [ $(echo ${found} | wc -w) -eq 1 ] && [ "${found%%:*}" != "unknown" ]; then
+    provider=${found%%:*}
+    provider_port=${found##*:}
+  else
+    if [ -z "${found}" ]; then
+      echo "No provider answers on ports 1234, 11234 or 11434: start one (prov_launcher.sh)."
+    else
+      echo "Could not tell which provider to use (found: ${found}): choose one with -p ollama|lmstudio|mlx-serve."
+    fi
+    exit 1
   fi
 
   if [ "$provider" = "ollama" ]; then
-    echo "Using Ollama provider"
-    provider_port="11434"
+    echo "Using Ollama provider on port ${provider_port}"
     wrapped="y"
   elif [ "$provider" = "lmstudio" ]; then
-    echo "Using LMStudio provider"
-    provider_port="1234"
+    echo "Using LMStudio provider on port ${provider_port}"
   elif [ "$provider" = "mlx-serve" ]; then
-    echo "Using mlx-serve provider"
-    provider_port="1234"
+    echo "Using mlx-serve provider on port ${provider_port}"
   else
     echo "Invalid provider: $provider"
     exit 1

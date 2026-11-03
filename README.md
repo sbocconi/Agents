@@ -41,35 +41,42 @@ Both Ollama and LMStudio (the latter with a GUI) allow you to download models yo
 # How to run `startDocker.sh`
 
 The launcher script expects at least:
-- a language (`python` or `go`)
-- a provider (`ollama`, `wrapped_ollama`, `lms`, or `wrapped_lms`)
+- a language (`python`, `go` or `node`)
+- a context length (`-c`, in K), unless the agent runs on its subscription (`-s`)
+
+The provider (`ollama`, `lmstudio` or `mlx-serve`) is detected from the running processes, the first one found in that order of preference: mlx-serve, LM Studio, Ollama. Use `-p` to choose one when several are running.
 
 General command:
 
 ```bash
-./startDocker.sh -l <python|go> -a <claude|opencode> -p <provider> -m <model>
+./startDocker.sh -l <python|go|node> -a <claude|opencode|pi|codex> -c <context in K> [-p <provider>] [-m <model>]
 ```
 
 Useful options:
 - `-a`: agent (`claude` by default)
-- `-l`: language/environment (`python` or `go`)
-- `-p`: provider mode (`ollama`, `wrapped_ollama`, `lms`, `wrapped_lms`)
-- `-m`: model name (default is `qwen3-coder-next:latest`)
+- `-l`: language/environment (`python`, `go` or `node`)
+- `-c`: LLM context size in K
+- `-p`: provider (`ollama`, `lmstudio` or `mlx-serve`); default: detected
+- `-m`: model name, matched against the provider's model list (default `qwen3.8`)
+- `-w`: launch the agent through `ollama launch` (always on for the Ollama provider)
+- `-s`: use the agent's own subscription instead of a local provider
 - `-d`: extra directory to mount read-only in the container (can be repeated)
 - `-r`: resume checkpoint/session id for supported agents
+- `-k`: keep the container running after the agent exits
+- `-e`: print the command instead of running it
 - `-h`: help
 
 Examples:
 
 ```bash
-# Python + Claude + wrapped Ollama
-./startDocker.sh -l python -a claude -p wrapped_ollama -m qwen3-coder-next:latest
+# Python + Claude, provider detected, 64K context
+./startDocker.sh -l python -a claude -c 64
 
-# Go + Opencode + LM Studio
-./startDocker.sh -l go -a opencode -p lms -m qwen3-coder-next:latest
+# Go + Opencode on LM Studio with Qwen3-Coder
+./startDocker.sh -l go -a opencode -c 64 -p lmstudio -m qwen3-coder
 
 # Add an extra read-only mount
-./startDocker.sh -l python -a claude -p wrapped_ollama -d /Users/youruser/SomeProject
+./startDocker.sh -l python -a claude -c 64 -d /Users/youruser/SomeProject
 ```
 
 Notes:

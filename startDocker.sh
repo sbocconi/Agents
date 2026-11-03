@@ -37,7 +37,7 @@ echo_command="n"
 subscribed="n"
 keep_running="n"
 
-while getopts "a:c:d:ehkl:m:r:sw" opt; do
+while getopts "a:c:d:ehkl:m:p:r:sw" opt; do
     case $opt in
       a)
         agent="${OPTARG}"
@@ -65,6 +65,7 @@ while getopts "a:c:d:ehkl:m:r:sw" opt; do
         echo "  -k          Keep the container running after the agent exits (default: stop it if no other session uses it)"
         echo "  -l LANGUAGE  Specify the programming language"
         echo "  -m MODEL     Specify the model to use"
+        echo "  -p PROVIDER  ollama, lmstudio or mlx-serve (default: the first of these found running)"
         echo "  -r RESUME   Specify a resume checkpoint for the agent"
         echo "  -s          Launch in subscribed mode"
         echo "  -w          Launch agent via ollama"
@@ -108,13 +109,16 @@ else
     exit 1
   fi
 
-  for pr in ${PROVIDERS};
-  do
-    if ps -e | grep -v docker | grep $pr | grep -v grep >/dev/null; then
-      provider="$pr"
-      break
-    fi
-  done  
+  # Without -p, use the first provider found running
+  if [ -z "$provider" ]; then
+    for pr in ${PROVIDERS};
+    do
+      if ps -e | grep -v docker | grep $pr | grep -v grep >/dev/null; then
+        provider="$pr"
+        break
+      fi
+    done
+  fi
 
   if [ "$provider" = "ollama" ]; then
     echo "Using Ollama provider"

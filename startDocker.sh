@@ -108,8 +108,7 @@ else
     exit 1
   fi
 
-  # Find the providers by asking the ports they normally use (LM Studio 1234, mlx-serve 1234 via prov_launcher.sh
-  # or its own default 11234, Ollama 11434) which server answers there
+  # Find the providers by asking their ports (LM Studio 1234, mlx-serve 11234, Ollama 11434) which server answers there
   found=""
   for port in 1234 11234 11434; do
     models=$(curl -s --max-time 1 http://localhost:${port}/v1/models) || continue

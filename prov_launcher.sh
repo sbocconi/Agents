@@ -13,7 +13,7 @@ tailpid_file="$ollama_dir/ollama_tail.pid"
 mlx_serve_dir=~/.mlx-serve
 mlx_serve_log="${mlx_serve_dir}/server.log"
 mlx_serve_pid="${mlx_serve_dir}/mlx_serve.pid"
-mlx_serve_port=1234
+mlx_serve_port=11234   # mlx-serve's own default; LM Studio has 1234, so both can run at the same time
 
 # 1024=1K 262144=256K, 65536=64K, 48128=47K, 32768=32K, 16384=16K, 8192=8K
 context_lengthK=32

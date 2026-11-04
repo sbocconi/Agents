@@ -281,8 +281,11 @@ case $agent in
       opencode)
         conf_dir="${mac_path}/.opencode"
         mkdir -p "${conf_dir}"
+        # sessions and state in the repo too (opencode keeps them under the XDG data and state directories)
         my_exports="OPENCODE_CONFIG=\"${conf_dir}\"/opencode.json \
         OPENCODE_TUI_CONFIG=\"${conf_dir}\"/tui.json \
+        XDG_DATA_HOME=\"${conf_dir}\"/data \
+        XDG_STATE_HOME=\"${conf_dir}\"/state \
         "
         prov_models_list=()
         for mod in $(curl http://localhost:${provider_port}/v1/models 2>/dev/null | jq -r '.data[].id');
@@ -344,8 +347,10 @@ EOF
         exit 1
         ;;
       codex)
-        conf_dir="./.codex"
+        conf_dir="${mac_path}/.codex"
         mkdir -p "${conf_dir}"
+        # settings and sessions in the repo, not in the container's ~/.codex
+        my_exports="CODEX_HOME=\"${conf_dir}\" "
         if [ "$wrapped" = "n" ]; then
           echo "codex does not play well without ollama, use wrapped mode"
           exit 1
@@ -391,7 +396,7 @@ EOF
         fi
         ;;
       pi)
-        conf_dir="./.pi"
+        conf_dir="${mac_path}/.pi"
         mkdir -p "${conf_dir}"
         my_exports="PI_CODING_AGENT_DIR=\"${conf_dir}\" \
         "

@@ -82,10 +82,7 @@ Examples:
 Notes:
 - The script auto-selects `PythonDockerfile` for `-l python` and `GoDockerfile` for `-l go`.
 - The current working directory (`pwd`) from which you launch `startDocker.sh` is bind-mounted into the container at the exact same absolute path, and the container working directory is set there. In practice, this directory is assumed to be the target repo the agent will work on.
-- For `claude` and `opencode`, host-side agent state is also mounted so history/config remains visible and reusable on macOS:
-	- `$HOME/.claude` -> `/root/.claude`
-	- `$HOME/.claude.json` -> `/root/.claude.json`
-	- `$HOME/.local/share/opencode` -> `/root/.local/share/opencode`
+- Nothing else from the Mac is mounted (only `-d` directories, read-only). Every agent keeps its settings and sessions in the repo, so they can be resumed on the Mac too and repos never share agent state: `.claude` (`CLAUDE_CONFIG_DIR`), `.opencode` (config, plus sessions under `.opencode/data` and `.opencode/state`), `.codex` (`CODEX_HOME`) and `.pi` (`PI_CODING_AGENT_DIR`). You may want these directories in the repo's `.gitignore`.
 - Containers are named per project and language, using `agent-sandbox-<parent_dir>_<current_dir>-<language>` (for example `agent-sandbox-myorg_myrepo-python`). This gives you dedicated containers for each repo/language combination; if a matching container already exists, it is reused.
 - All containers of a language share one image, `agent-sandbox-<language>:<hash>`, where the hash comes from the Dockerfile. It is built only the first time (or after the Dockerfile changes), so ten projects cost one image plus each container's own changes, instead of ten full images. After a Dockerfile change, a project's container is recreated from the new image the next time you start it (everything that matters is in the mounted directories), unless an agent session is still running in it; old images are deleted once no container uses them.
 - Package caches are shared by all containers through Docker volumes (`agent-sandbox-cache` for `~/.cache` (uv, pip, Go builds), `agent-sandbox-npm`, `agent-sandbox-gomod`), so packages are downloaded and stored once.

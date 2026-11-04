@@ -60,25 +60,16 @@ startDocker() {
 
     # Run the container in the background (-d)
     # We mount the current directory to the same path in the container, to be able to resume the session also outside of the container.
-    # We also mount the agent directory (for example, .claude) to share the same settings.
-    # The idea is to support other agents, such as copilot, here we mount opencode's .config directory,
-    # but this has not been tested yet for copilot.
+    # Nothing else from the Mac is mounted (apart from -d directories, read-only): every agent keeps its settings and
+    # sessions in the repo (.claude, .opencode, .codex, .pi; see startDocker.sh), so repos do not share agent state.
     echo "Starting container..."
-    if [ "${agent}" == "claude" -o "${agent}" == "opencode" ]; then
-      # map_dirs="${map_dirs} -v $HOME/.claude:/root/.claude -v $HOME/.claude.json:/root/.claude.json"
-      map_dirs="${map_dirs} -v $HOME/.local/share/opencode:/root/.local/share/opencode"
-    elif [ "${agent}" == "copilot" ]; then
-      map_dirs="${map_dirs} -v $HOME/.copilot:/root/.copilot"
-    elif [ "${agent}" == "codex" ]; then
-      map_dirs="${map_dirs} -v $HOME/.codex:/root/.codex"
-    elif [ "${agent}" == "pi" ]; then
-      map_dirs="${map_dirs} -v $HOME/.pi:/root/.pi"
-    elif [ "${agent}" == "mlx-serve" ]; then
-      map_dirs="${map_dirs} -v $HOME/.mlx:/root/.mlx"
-    else
-      echo "Unsupported agent: ${agent}"
-      exit 1
-    fi
+    case "${agent}" in
+      claude|opencode|copilot|codex|pi|mlx-serve) ;;
+      *)
+        echo "Unsupported agent: ${agent}"
+        exit 1
+        ;;
+    esac
 
     # Package caches shared by all containers (Docker volumes), so each package is downloaded and stored once
     # instead of once per container: uv, pip and the Go build cache (~/.cache), npm, Go modules

@@ -116,8 +116,9 @@ else
       found="${found} ollama:${port}"
     elif echo "${models}" | jq -e 'has("machine")' > /dev/null 2>&1; then    # mlx-serve adds its machine info
       found="${found} mlx-serve:${port}"
-    elif [ "$(curl -s --max-time 1 -o /dev/null -w '%{http_code}' http://localhost:${port}/api/v0/models)" = "200" ]; then
-      found="${found} lmstudio:${port}"                                     # LM Studio's own REST API
+    elif [ "$(curl -s --max-time 1 -o /dev/null -w '%{http_code}' http://localhost:${port}/api/v0/models)" = "200" ] ||
+         [ "$(curl -s --max-time 1 -o /dev/null -w '%{http_code}' http://localhost:${port}/api/v1/models)" = "200" ]; then
+      found="${found} lmstudio:${port}"                                     # LM Studio's own REST API (v0, or v1 in newer versions)
     else
       found="${found} unknown:${port}"
     fi
@@ -126,6 +127,11 @@ else
 
   if [ -n "$provider" ]; then
     provider_port=$(echo " ${found} " | grep -oE " ${provider}:[0-9]+ " | head -1 | cut -d: -f2 | tr -d ' ')
+    # A server not recognised on the provider's own port is taken to be that provider (-p is the user's word for it)
+    default_port=$(case "$provider" in lmstudio) echo 1234;; mlx-serve) echo 11234;; ollama) echo 11434;; esac)
+    if [ -z "$provider_port" ] && echo " ${found} " | grep -q " unknown:${default_port} "; then
+      provider_port=${default_port}
+    fi
     if [ -z "$provider_port" ]; then
       echo "Provider ${provider} does not answer on its usual ports (found: ${found:-nothing}). Is it running?"
       exit 1

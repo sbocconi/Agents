@@ -241,6 +241,10 @@ case $agent in
         # CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 \
         
         mkdir -p "${mac_path}/.claude"
+        # The config in the repo has no install method, so the native claude warns "config install method is 'not set'"
+        conf_json="${mac_path}/.claude/.claude.json"
+        [ -s "${conf_json}" ] || echo '{}' > "${conf_json}"
+        jq -e '.installMethod' "${conf_json}" > /dev/null || { jq '.installMethod = "native"' "${conf_json}" > "${conf_json}.tmp" && mv "${conf_json}.tmp" "${conf_json}"; }
         my_exports="CLAUDE_CONFIG_DIR=\"${mac_path}/.claude\" \
                     IS_SANDBOX=1 \
                     CLAUDE_CODE_DISABLE_MOUSE=1 \
@@ -249,7 +253,11 @@ case $agent in
 
         if [ "$subscribed" != "y" ]; then
           my_exports=" $my_exports \
-            ANTHROPIC_TIMEOUT_MS=600000 \
+            ANTHROPIC_TIMEOUT_MS=1800000 \
+            API_TIMEOUT_MS=1800000 \
+            CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS=1800000 \
+            CLAUDE_STREAM_IDLE_TIMEOUT_MS=1800000 \
+            API_FORCE_IDLE_TIMEOUT=false \
             CLAUDE_CODE_AUTO_COMPACT_WINDOW=${llm_context} \
             "
             if [ "$wrapped" = "n" ]; then
@@ -452,6 +460,11 @@ echo "options to run in container: ${add_options}"
 echo "exports to run in container: ${my_exports}"
 
 agent_script="${mac_path}/.${agent}/run_${agent}.sh"
+
+# The agent's folder holds its login and sessions: keep it out of git without touching the project's .gitignore
+if [ -d "${mac_path}/.git/info" ] && ! grep -qx "/.${agent}/" "${mac_path}/.git/info/exclude" 2>/dev/null; then
+  echo "/.${agent}/" >> "${mac_path}/.git/info/exclude"
+fi
 
 echo -e "#!/bin/bash\n" > ${agent_script}
 echo -e "source ~/.bashrc\n" >> ${agent_script}
